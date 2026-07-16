@@ -3,6 +3,7 @@ import rateLimit from 'express-rate-limit';
 import NodeCache from 'node-cache';
 import crypto from 'crypto';
 import https from 'https';
+import http from 'http';
 
 const router = express.Router();
 
@@ -30,33 +31,49 @@ function proxyStreamRequest(req, res, targetUrlStr, extraHeaders = {}) {
     }
 
     
+    if (req.method === 'OPTIONS') {
+        res.header('Access-Control-Allow-Origin', '*');
+        res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+        res.header('Access-Control-Allow-Headers', 'Range, Content-Type, Authorization, X-Requested-With');
+        res.header('Access-Control-Max-Age', '86400');
+        return res.sendStatus(200);
+    }
+
+    
     const requestHeaders = { ...req.headers };
     delete requestHeaders['host'];
     delete requestHeaders['connection'];
     delete requestHeaders['content-length'];
     delete requestHeaders['accept-encoding']; 
 
+    const isManifest = targetUrlStr.includes('.m3u8') || targetUrlStr.includes('.m3u');
+
+    const reqHeaders = {
+        ...requestHeaders,
+        host: targetUrl.hostname,
+        ...extraHeaders,
+        'Cache-Control': 'no-cache'
+    };
+    if (!isManifest) {
+        reqHeaders['Range'] = req.headers['range'] || 'bytes=0-';
+    }
+
     const options = {
         hostname: targetUrl.hostname,
         path: targetUrl.pathname + targetUrl.search,
         method: req.method,
-        headers: {
-            ...requestHeaders,
-            host: targetUrl.hostname,
-            ...extraHeaders,
-            'Range': req.headers['range'] || 'bytes=0-', 
-            'Cache-Control': 'no-cache'
-        },
-        timeout: 60000, 
+        headers: reqHeaders,
+        timeout: 60000,
     };
 
-    const proxyReq = https.request(options, (proxyRes) => {
+    const protocol = targetUrl.protocol === 'https:' ? https : http;
+
+    const proxyReq = protocol.request(options, (proxyRes) => {
         if (res.headersSent) return;
         
         
         if (proxyRes.statusCode && proxyRes.statusCode >= 300 && proxyRes.statusCode < 400 && proxyRes.headers.location) {
             const redirectUrl = new URL(proxyRes.headers.location, targetUrlStr);
-            console.log(`[STREAM PROXY] Redirecting to: ${redirectUrl.toString()}`);
             return proxyStreamRequest(req, res, redirectUrl.toString(), extraHeaders);
         }
         
@@ -64,39 +81,51 @@ function proxyStreamRequest(req, res, targetUrlStr, extraHeaders = {}) {
         const headers = { ...proxyRes.headers };
         delete headers['access-control-allow-origin'];
         delete headers['server'];
-        delete headers['content-encoding']; 
+        delete headers['content-encoding'];
         
-        
+        const contentType = headers['content-type'] || '';
+        const reallyIsManifest = isManifest || 
+                               contentType.includes('mpegurl') || 
+                               contentType.includes('apple.mpegurl') || 
+                               contentType.includes('application/x-mpegURL');
+
         if (!headers['content-type'] || headers['content-type'] === 'application/octet-stream') {
             if (targetUrlStr.includes('.mp4')) headers['content-type'] = 'video/mp4';
-            else if (targetUrlStr.includes('.m3u8')) headers['content-type'] = 'application/vnd.apple.mpegurl';
+            else if (reallyIsManifest) headers['content-type'] = 'application/vnd.apple.mpegurl';
             else if (targetUrlStr.includes('.ts')) headers['content-type'] = 'video/mp2t';
         }
 
-        
         headers['Access-Control-Allow-Origin'] = '*';
         headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS';
+        headers['Access-Control-Allow-Headers'] = 'Range, Content-Type, Authorization, X-Requested-With';
+
+        
+        if (reallyIsManifest && (proxyRes.statusCode === 200 || proxyRes.statusCode === 206)) {
+            let body = '';
+            proxyRes.on('data', chunk => { body += chunk; });
+            proxyRes.on('end', () => {
+                const rewrittenBody = rewriteHlsManifest(body, targetUrlStr);
+                headers['content-length'] = Buffer.byteLength(rewrittenBody);
+                res.writeHead(200, headers);
+                res.end(rewrittenBody);
+            });
+            return;
+        }
         
         res.writeHead(proxyRes.statusCode || 200, headers);
-        
-        proxyRes.on('error', (err) => {
-            console.error(`[STREAM PROXY RES ERROR] ${targetUrl.hostname}:`, err.message);
-            res.end();
-        });
-        
         proxyRes.pipe(res);
     });
 
     proxyReq.on('error', (err) => {
         if (res.headersSent) return;
-        console.error(`[STREAM PROXY ERROR] ${targetUrl.hostname}:`, err.message);
-        res.status(502).json({ error: "Bad Gateway", message: `Proxy error: ${err.message}` });
+        console.error(`[STREAM PROXY] Error for ${targetUrlStr}:`, err.message);
+        
+        res.status(502).json({ error: "Upstream Error", message: "Failed to connect to stream" });
     });
 
     proxyReq.on('timeout', () => {
         if (res.headersSent) return;
         proxyReq.destroy();
-        console.error(`[STREAM PROXY TIMEOUT] ${targetUrl.hostname}`);
         res.status(504).json({ error: "Gateway Timeout", message: 'Proxy timeout' });
     });
 
@@ -108,9 +137,48 @@ function proxyStreamRequest(req, res, targetUrlStr, extraHeaders = {}) {
 }
 
 
+function rewriteHlsManifest(content, baseUrlStr) {
+    const lines = content.split('\n');
+    const baseUrl = new URL(baseUrlStr);
+    const baseDir = baseUrlStr.substring(0, baseUrlStr.lastIndexOf('/') + 1);
+    
+    return lines.map(line => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) {
+            
+            if (trimmed.includes('URI="') && !trimmed.includes('URI="http')) {
+                return trimmed.replace(/URI="([^"]+)"/, (match, p1) => {
+                    try {
+                        const absoluteUrl = p1.startsWith('/') ? new URL(p1, baseUrl.origin).toString() : new URL(p1, baseDir).toString();
+                        return `URI="/api/stream/proxy?url=${encodeURIComponent(absoluteUrl)}"`;
+                    } catch (e) { return match; }
+                });
+            }
+            return line;
+        }
+        
+        try {
+            let absoluteUrl;
+            if (trimmed.startsWith('http')) absoluteUrl = trimmed;
+            else if (trimmed.startsWith('/')) absoluteUrl = new URL(trimmed, baseUrl.origin).toString();
+            else absoluteUrl = new URL(trimmed, baseDir).toString();
+            
+            // Proxy it!
+            const proxiedPath = absoluteUrl.includes('.m3u8') || absoluteUrl.includes('.m3u') || absoluteUrl.includes('.ts') || absoluteUrl.includes('.key')
+                ? `/api/stream/proxy?url=${encodeURIComponent(absoluteUrl)}`
+                : `/api/stream/proxy?url=${encodeURIComponent(absoluteUrl)}`; // Just default to it
+            
+            return proxiedPath;
+        } catch (e) {
+            return line;
+        }
+    }).join('\n');
+}
+
+// Rate limiting middleware
 const apiLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, 
-    max: 100, 
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // Limit each IP to 100 requests per windowMs
     message: {
         error: "Too many requests",
         message: "Rate limit exceeded. Please try again later.",
@@ -118,9 +186,9 @@ const apiLimiter = rateLimit({
     },
     standardHeaders: true,
     legacyHeaders: false,
-    validate: { xForwardedForHeader: false, default: true },
+    validate: { xForwardedForHeader: false, default: false },
     keyGenerator: (req) => {
-        
+        // Use Forwarded or X-Forwarded-For if available, otherwise fallback to req.ip
         const forwardedHeader = req.headers['forwarded'];
         if (forwardedHeader) {
             const match = forwardedHeader.match(/for="?([^;"]+)"?/);
@@ -154,8 +222,20 @@ const baseHeaders = {
 async function fetchExternal(url, options = {}, attempt = 1) {
     const isPlayer = url.includes("123movienow.cc");
     const isCineverse = url.includes("cineverse.name.ng");
+    const isOmegaTv = url.includes("ch.omegatech.app");
 
-    const headers = { ...baseHeaders, ...options.headers };
+    let headers = { ...baseHeaders, ...options.headers };
+
+    if (isOmegaTv) {
+        
+        headers = {
+            'Accept': 'application/json, text/plain, */*',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Referer': 'https://ch.omegatech.app/',
+            'Origin': 'https://ch.omegatech.app',
+            ...options.headers
+        };
+    }
 
     if (isPlayer) {
         headers['Origin'] = 'https://123movienow.cc';
@@ -163,6 +243,9 @@ async function fetchExternal(url, options = {}, attempt = 1) {
     } else if (isCineverse) {
         headers['Origin'] = 'https://cineverse.name.ng';
         headers['Referer'] = 'https://cineverse.name.ng/';
+    } else if (isOmegaTv) {
+        headers['Origin'] = 'https://ch.omegatech.app';
+        headers['Referer'] = 'https://ch.omegatech.app/';
     } else {
         headers['Origin'] = 'https://moviebox.ph';
         headers['Referer'] = 'https://moviebox.ph/';
@@ -198,7 +281,7 @@ async function fetchExternal(url, options = {}, attempt = 1) {
             return fetchExternal(url, options, attempt + 1);
         }
         
-        console.error(`[API] Final fail ${url}, returning fallback`);
+        console.error(`[API] Final fail ${url}:`, error.message);
         return { results: [], success: true }; 
     }
 }
@@ -384,6 +467,74 @@ router.get('/sources/:id', async (req, res) => {
         const cached = cache.get(cacheKey);
         if (cached) return res.json(cached);
 
+        
+        try {
+            const omegatechUrl = `https://omegatech-api.dixonomega.tech/api/movie/MovieBox-pro?action=download&subjectId=${id}&se=${type.includes('Series') ? season : 0}&ep=${type.includes('Series') ? episode : 0}${detailPath ? `&detailPath=${encodeURIComponent(detailPath)}` : ''}`;
+            const omegatechData = await fetchExternal(omegatechUrl);
+            
+            if (omegatechData.success && (omegatechData.proxy || omegatechData.streams)) {
+                const results = [];
+                
+                
+                if (omegatechData.proxy) {
+                    const proxy = omegatechData.proxy;
+                    Object.keys(proxy).forEach(key => {
+                        if (key.startsWith('stream')) {
+                            const qualityStr = key.replace('stream', ''); 
+                            const downloadKey = key.replace('stream', 'download');
+                            const streamUrl = proxy[key];
+                            const downloadUrl = proxy[downloadKey] || proxy[key];
+                            
+                            results.push({
+                                id: key,
+                                quality: qualityStr,
+                                stream: `/api/stream/proxy?url=${encodeURIComponent(streamUrl)}`,
+                                direct: `/api/stream/proxy?url=${encodeURIComponent(streamUrl)}`,
+                                download: `/api/stream/proxy?url=${encodeURIComponent(downloadUrl)}`,
+                                label: qualityStr,
+                                type: streamUrl.includes('.m3u8') ? 'hls' : 'mp4'
+                            });
+                        }
+                    });
+                }
+                
+                
+                if (results.length === 0 && omegatechData.streams) {
+                    omegatechData.streams.forEach(s => {
+                        results.push({
+                            id: s.id || Math.random().toString(),
+                            quality: `${s.resolution}p`,
+                            stream: `/api/stream/proxy?url=${encodeURIComponent(s.originalUrl)}`,
+                            direct: `/api/stream/proxy?url=${encodeURIComponent(s.originalUrl)}`,
+                            download: `/api/stream/proxy?url=${encodeURIComponent(s.originalUrl)}`,
+                            label: s.quality || `${s.resolution}p`,
+                            type: s.format?.toLowerCase() === 'hls' ? 'hls' : 'mp4'
+                        });
+                    });
+                }
+
+                if (results.length > 0) {
+                    results.sort((a, b) => {
+                        const qA = parseInt(a.quality) || 0;
+                        const qB = parseInt(b.quality) || 0;
+                        return qB - qA;
+                    });
+                    
+                    const subs = (omegatechData.subtitles || []).map((s) => ({
+                        lang: s.lang || s.language,
+                        name: s.name || s.language,
+                        url: s.url || s.file
+                    }));
+
+                    const response = { success: true, results, subtitles: subs };
+                    cache.set(cacheKey, response);
+                    return res.json(response);
+                }
+            }
+        } catch (e) {
+            console.warn('[API] Omegatech sources failed:', e.message);
+        }
+
 
         try {
             let gzUrl = `https://gzmovieboxapi.septorch.tech/api/media?apikey=Godszeal&subjectId=${id}`;
@@ -406,13 +557,13 @@ router.get('/sources/:id', async (req, res) => {
             }
             
             if (gzData.status === "success" && gzData.data?.downloads?.data?.downloads && gzData.data.downloads.data.downloads.length > 0) {
-const downloads = gzData.data.downloads.data.downloads;
+                const downloads = gzData.data.downloads.data.downloads;
                 const results = downloads.map((d, i) => ({
                     id: d.id || String(i + 1),
                     quality: d.resolution,
-                    stream: d.streamUrl,
-                    direct: d.streamUrl,
-                    download: d.downloadUrl,
+                    stream: `/api/stream/proxy?url=${encodeURIComponent(d.streamUrl)}`,
+                    direct: `/api/stream/proxy?url=${encodeURIComponent(d.streamUrl)}`,
+                    download: `/api/stream/proxy?url=${encodeURIComponent(d.downloadUrl)}`,
                     size: d.size || 'Unknown',
                     label: `${d.resolution}p`,
                     type: 'mp4'
@@ -436,38 +587,23 @@ const downloads = gzData.data.downloads.data.downloads;
 
 
         
+        let targetUrl = `https://123movienow.cc/wefeed-h5api-bff/subject/play?subjectId=${id}`;
+        
         const isSeries = type.includes('Series') || type.includes('TV') || type.includes('Anime');
-        
-        let pathParams = `?subjectId=${id}`;
         if (isSeries) {
-            pathParams += `&se=${season}&ep=${episode}`;
-        }
-        if (detailPath) {
-            pathParams += `&detailPath=${encodeURIComponent(detailPath)}`;
+            targetUrl += `&se=${season}&ep=${episode}`;
         }
         
-        // Priority 1: h5-api.aoneroom.com direct JSON API (most stable, bypasses Cloudflare)
-        let primaryUrl = `https://h5-api.aoneroom.com/wefeed-h5api-bff/subject/play${pathParams}`;
-        console.log(`[API] Fetching play sources from primary Aoneroom API: ${primaryUrl}`);
-        let data = await fetchExternal(primaryUrl);
+        if (detailPath) {
+            targetUrl += `&detailPath=${encodeURIComponent(detailPath)}`;
+        }
+        
+        let data = await fetchExternal(targetUrl);
         
         if (!isSeries && (!data || !data.success || !data.results || data.results.length === 0)) {
-            console.warn(`[API] Primary Aoneroom play failed or empty for movie ${id}, retrying as series...`);
-            const retryUrl = `https://h5-api.aoneroom.com/wefeed-h5api-bff/subject/play?subjectId=${id}&se=${season}&ep=${episode}${detailPath ? `&detailPath=${encodeURIComponent(detailPath)}` : ''}`;
+            console.warn(`[API] Fallback failed or empty for movie ${id}, retrying as series...`);
+            const retryUrl = `${targetUrl}&se=${season}&ep=${episode}`;
             data = await fetchExternal(retryUrl);
-        }
-        
-        // Priority 2: 123movienow.cc backup proxy if primary is empty or fails (bypassed with headers)
-        if (!data || !data.success || !data.results || data.results.length === 0) {
-            let backupUrl = `https://123movienow.cc/wefeed-h5api-bff/subject/play${pathParams}`;
-            console.log(`[API] Primary empty, attempting 123movienow.cc fallback URL: ${backupUrl}`);
-            data = await fetchExternal(backupUrl);
-            
-            if (!isSeries && (!data || !data.success || !data.results || data.results.length === 0)) {
-                console.warn(`[API] Fallback failed or empty for movie ${id}, retrying as series...`);
-                const retryUrl = `https://123movienow.cc/wefeed-h5api-bff/subject/play?subjectId=${id}&se=${season}&ep=${episode}${detailPath ? `&detailPath=${encodeURIComponent(detailPath)}` : ''}`;
-                data = await fetchExternal(retryUrl);
-            }
         }
         
         if (data.success && data.results && data.results.length > 0) {
@@ -689,6 +825,505 @@ router.get('/suggestions', async (req, res) => {
 });
 
 
+router.get('/tv/proxy', (req, res) => {
+    const { url } = req.query;
+    if (!url) return res.status(400).send('No URL provided');
+    proxyStreamRequest(req, res, decodeURIComponent(url));
+});
+
+
+router.get('/tv/img', async (req, res) => {
+    const { url } = req.query;
+    if (!url) return res.status(400).send('No URL provided');
+    
+    try {
+        const decodedUrl = decodeURIComponent(url);
+        if (!decodedUrl.startsWith('http')) return res.redirect(decodedUrl);
+
+        const isOmegaTv = decodedUrl.includes("omegatech.app") || 
+                          decodedUrl.includes("televizia.online") || 
+                          decodedUrl.includes("1tv.ge") || 
+                          decodedUrl.includes("pbcdnw.aoneroom.com") || 
+                          decodedUrl.includes("comments.ge") ||
+                          decodedUrl.includes("adjaranett.com") ||
+                          decodedUrl.includes("imoviesge.com");
+        
+        const headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive'
+        };
+        
+        if (isOmegaTv) {
+            if (decodedUrl.includes("comments.ge")) {
+                headers['Referer'] = 'https://comments.ge/';
+            } else if (decodedUrl.includes("adjaranett.com")) {
+                headers['Referer'] = 'https://adjaranett.com/';
+            } else if (decodedUrl.includes("imoviesge.com")) {
+                headers['Referer'] = 'https://imoviesge.com/';
+            } else {
+                headers['Referer'] = 'https://ch.omegatech.app/';
+                headers['Origin'] = 'https://ch.omegatech.app';
+            }
+        }
+
+        const protocol = decodedUrl.startsWith('https') ? https : http;
+        
+        const request = protocol.get(decodedUrl, { headers, timeout: 8000 }, (proxyRes) => {
+            if (proxyRes.statusCode >= 300 && proxyRes.statusCode < 400 && proxyRes.headers.location) {
+                return res.redirect(`/api/tv/img?url=${encodeURIComponent(proxyRes.headers.location)}`);
+            }
+
+            if (proxyRes.statusCode !== 200) {
+                console.error(`[IMG PROXY] Error ${proxyRes.statusCode} for ${decodedUrl}`);
+                return res.status(proxyRes.statusCode).end();
+            }
+
+            res.setHeader('Content-Type', proxyRes.headers['content-type'] || 'image/jpeg');
+            res.setHeader('Cache-Control', 'public, max-age=86400');
+            proxyRes.pipe(res);
+        });
+
+        request.on('error', (err) => {
+            console.error(`[IMG PROXY] Request error:`, err.message);
+            res.status(500).end();
+        });
+
+        request.on('timeout', () => {
+            request.destroy();
+            res.status(504).end();
+        });
+    } catch (error) {
+        console.error(`[IMG PROXY] Catch error:`, error.message);
+        res.status(500).end();
+    }
+});
+
+
+router.get('/tv/home', async (req, res) => {
+    try {
+        const data = await fetchExternal(`https://ch.omegatech.app/home`);
+        res.json({ data });
+    } catch (error) {
+        console.error("TV Home error:", error);
+        res.status(500).json({ error: "Internal server error", data: null });
+    }
+});
+
+router.get('/tv/channels', async (req, res) => {
+    try {
+        const { cat, q, offset, limit } = req.query;
+        let url = `https://ch.omegatech.app/channels?limit=${limit || 500}&offset=${offset || 0}`;
+        if (cat) url += `&cat=${encodeURIComponent(cat)}`;
+        if (q) url += `&q=${encodeURIComponent(q)}`;
+        
+        const data = await fetchExternal(url);
+        
+        const rawItems = data.items || data.data || (Array.isArray(data) ? data : []);
+        const normalized = rawItems.map(item => {
+            const rawUrl = item.streamUrl || item.stream_url || item.url || item.embedUrl || '';
+            const proxiedUrl = rawUrl.startsWith('http') && !rawUrl.includes('stream.omegatech.app') 
+                ? `/api/stream/proxy?url=${encodeURIComponent(rawUrl)}` 
+                : rawUrl;
+            return {
+                id: item.id || item.channelId,
+                name: item.name,
+                category: item.categorySlug || item.category,
+                url: proxiedUrl,
+                stream_url: proxiedUrl,
+                logo: item.posterUrl || item.logo || item.poster,
+                thumbnail: item.posterUrl || item.thumbnail || item.poster,
+                group: item.categorySlug || item.group,
+                hd: item.hd,
+                description: item.description
+            };
+        });
+
+        res.json({ data: normalized, total: data.total || normalized.length });
+    } catch (error) {
+        console.error("TV Channels error:", error);
+        res.status(500).json({ error: "Internal server error", data: [] });
+    }
+});
+
+router.get('/tv/guide', async (req, res) => {
+    try {
+        const { date } = req.query;
+        let url = `https://ch.omegatech.app/guide`;
+        if (date) url += `?date=${date}`;
+        
+        const data = await fetchExternal(url);
+        
+        
+        let flattenedPrograms = [];
+        if (Array.isArray(data)) {
+            data.forEach(chItem => {
+                if (chItem.programs && Array.isArray(chItem.programs)) {
+                    chItem.programs.forEach(prog => {
+                        flattenedPrograms.push({
+                            ...prog,
+                            channel_id: chItem.channel?.id,
+                            channel_name: chItem.channel?.name,
+                            channel_logo: chItem.channel?.posterUrl
+                        });
+                    });
+                }
+            });
+        }
+
+        
+        flattenedPrograms.sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+
+        res.json({ data: flattenedPrograms });
+    } catch (error) {
+        console.error("TV Guide error:", error);
+        res.status(500).json({ error: "Internal server error", data: [] });
+    }
+});
+
+router.get('/tv/onnow', async (req, res) => {
+    try {
+        const data = await fetchExternal(`https://ch.omegatech.app/onnow`);
+        const rawItems = Array.isArray(data) ? data : (data.data || data.items || []);
+        
+        const normalized = rawItems.map(item => {
+            const channel = item.channel || {};
+            const program = (item.programs && item.programs[0]) || item.program || item;
+            
+            const rawUrl = channel.streamUrl || channel.stream_url || item.stream_url || channel.url || item.url || '';
+            const proxiedUrl = rawUrl.startsWith('http') && !rawUrl.includes('stream.omegatech.app')
+                ? `/api/stream/proxy?url=${encodeURIComponent(rawUrl)}`
+                : rawUrl;
+            
+            return {
+                id: channel.id || item.id,
+                channel_name: channel.name || item.channel_name,
+                title: program.title || item.title,
+                start_time: program.start || item.start || item.start_time,
+                end_time: program.end || item.end || item.end_time,
+                duration: program.dur || item.duration,
+                logo: channel.posterUrl || channel.logo || item.logo,
+                thumbnail: program.thumb || item.thumbnail || channel.posterUrl,
+                stream_url: proxiedUrl,
+                url: proxiedUrl
+            };
+        });
+
+        res.json({ data: normalized });
+    } catch (error) {
+        console.error("TV OnNow error:", error);
+        res.status(500).json({ error: "Internal server error", data: [] });
+    }
+});
+
+router.get('/tv/matches', async (req, res) => {
+    try {
+        const { season } = req.query;
+        let url = `https://ch.omegatech.app/matches`;
+        if (season) url += `?season=${season}`;
+        
+        const data = await fetchExternal(url);
+        const rawMatches = data.matches || (Array.isArray(data) ? data : []);
+        
+        const normalized = rawMatches.map(m => {
+            
+            const home = m.homeTeam || { name: m.home_team, crest: m.home_logo };
+            const away = m.awayTeam || { name: m.away_team, crest: m.away_logo };
+            const comp = m.competition || { name: m.league, emblem: m.league_logo };
+            
+            let scoreStr = '0 - 0';
+            if (m.score?.fullTime) {
+                scoreStr = `${m.score.fullTime.home ?? 0} - ${m.score.fullTime.away ?? 0}`;
+            } else if (typeof m.score === 'string') {
+                scoreStr = m.score;
+            }
+
+            return {
+                id: m.id,
+                home_team: home.name,
+                away_team: away.name,
+                home_logo: home.crest || home.logo,
+                away_logo: away.crest || away.logo,
+                score: scoreStr,
+                date: m.utcDate || m.date,
+                time: m.utcDate ? new Date(m.utcDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : (m.time || ''),
+                status: m.status,
+                league: comp.name,
+                league_logo: comp.emblem || comp.logo,
+                urls: (m.urls || []).map((u) => {
+                    const urlVal = typeof u === 'string' ? u : u.url;
+                    const proxiedUrl = urlVal.startsWith('http') && !urlVal.includes('stream.omegatech.app')
+                        ? `/api/stream/proxy?url=${encodeURIComponent(urlVal)}`
+                        : urlVal;
+                    return { ...u, url: proxiedUrl };
+                })
+            };
+        });
+
+        res.json({ data: normalized });
+    } catch (error) {
+        console.error("TV Matches error:", error);
+        res.status(500).json({ error: "Internal server error", data: [] });
+    }
+});
+
+router.get('/tv/home', async (req, res) => {
+    try {
+        const data = await fetchExternal(`https://ch.omegatech.app/home`);
+        
+        if (data && data.banners) {
+            data.banners = data.banners.map(b => {
+                if (b.channel) {
+                    const rawUrl = b.channel.streamUrl || b.channel.stream_url || b.channel.url || '';
+                    if (rawUrl && rawUrl.startsWith('http') && !rawUrl.includes('stream.omegatech.app')) {
+                        b.channel.streamUrl = `/api/stream/proxy?url=${encodeURIComponent(rawUrl)}`;
+                        b.channel.stream_url = b.channel.streamUrl;
+                    }
+                }
+                return b;
+            });
+        }
+
+        if (data && data.onnow) {
+            data.onnow = data.onnow.map(item => {
+                if (item.channel) {
+                    const rawUrl = item.channel.streamUrl || item.channel.stream_url || item.channel.url || '';
+                    if (rawUrl && rawUrl.startsWith('http') && !rawUrl.includes('stream.omegatech.app')) {
+                        item.channel.streamUrl = `/api/stream/proxy?url=${encodeURIComponent(rawUrl)}`;
+                        item.channel.stream_url = item.channel.streamUrl;
+                    }
+                }
+                return item;
+            });
+        }
+        
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+
+router.get('/live-tv', async (req, res) => {
+    try {
+        const cacheKey = 'live_tv_list';
+        const cached = cache.get(cacheKey);
+        if (cached) return res.json(cached);
+
+        const targetUrl = 'https://omegatech-api.dixonomega.tech/api/movie/Live-Tv?action=list';
+        const data = await fetchExternal(targetUrl);
+        
+        if (data.success && data.data) {
+            
+            const channels = Object.entries(data.data).map(([id, ch]) => {
+                const channel = ch;
+                const isOmegatechProxy = channel.url?.includes('stream.omegatech.app');
+                return {
+                    id,
+                    ...channel,
+                    url: isOmegatechProxy ? channel.url : `/api/stream/proxy?url=${encodeURIComponent(channel.url)}`
+                };
+            });
+            
+            cache.set(cacheKey, channels, 1800); 
+            return res.json(channels);
+        }
+        
+        res.json([]);
+    } catch (error) {
+        console.error('[API] Live TV error:', error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+
+router.get('/sport/feeds', async (req, res) => {
+    try {
+        const cacheKey = 'sport_feeds';
+        const cached = cache.get(cacheKey);
+        if (cached) return res.json(cached);
+
+        const data = await fetchExternal('https://omegatech-api.dixonomega.tech/api/Sport/sport-feeds');
+        
+        
+        if (data && data.success) {
+            if (Array.isArray(data.matches)) {
+                data.matches.forEach(m => {
+                    if (m.playPath && m.playPath.startsWith('http')) {
+                        m.playPath = `/api/stream/proxy?url=${encodeURIComponent(m.playPath)}`;
+                    }
+                    if (Array.isArray(m.playSource)) {
+                        m.playSource.forEach(source => {
+                            if (source.url && source.url.startsWith('http')) {
+                                source.url = `/api/stream/proxy?url=${encodeURIComponent(source.url)}`;
+                            }
+                        });
+                    }
+                });
+            }
+            if (Array.isArray(data.highlights)) {
+                data.highlights.forEach(h => {
+                    if (h.path && h.path.startsWith('http')) {
+                        h.path = `/api/stream/proxy?url=${encodeURIComponent(h.path)}`;
+                    }
+                });
+            }
+        }
+
+        cache.set(cacheKey, data, 120); 
+        res.json(data);
+    } catch (error) {
+        console.error('[API] Sports feeds error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+router.get('/sport/trend', async (req, res) => {
+    try {
+        const { page = 1 } = req.query;
+        const cacheKey = `sport_trend_page_${page}`;
+        const cached = cache.get(cacheKey);
+        if (cached) return res.json(cached);
+
+        const data = await fetchExternal(`https://omegatech-api.dixonomega.tech/api/Sport/sport-trend?page=${page}&perPage=50`);
+        cache.set(cacheKey, data, 300); 
+        res.json(data);
+    } catch (error) {
+        console.error('[API] Sports trends error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+router.get('/sport/match-detail', async (req, res) => {
+    try {
+        const { id } = req.query;
+        if (!id) return res.status(400).json({ error: 'Missing id parameter' });
+
+        const cacheKey = `sport_match_${id}`;
+        const cached = cache.get(cacheKey);
+        if (cached) return res.json(cached);
+
+        const data = await fetchExternal(`https://omegatech-api.dixonomega.tech/api/Sport/match-detail?id=${id}`);
+        
+        
+        if (data && data.success) {
+            if (data.stream) {
+                if (data.stream.main && data.stream.main.startsWith('http')) {
+                    data.stream.main = `/api/stream/proxy?url=${encodeURIComponent(data.stream.main)}`;
+                }
+                if (Array.isArray(data.stream.channels)) {
+                    data.stream.channels.forEach(ch => {
+                        if (ch.url && ch.url.startsWith('http')) {
+                            ch.url = `/api/stream/proxy?url=${encodeURIComponent(ch.url)}`;
+                        }
+                    });
+                }
+            }
+            if (data.match) {
+                if (data.match.playPath && data.match.playPath.startsWith('http')) {
+                    data.match.playPath = `/api/stream/proxy?url=${encodeURIComponent(data.match.playPath)}`;
+                }
+            }
+        }
+
+        cache.set(cacheKey, data, 60); 
+        res.json(data);
+    } catch (error) {
+        console.error('[API] Sports match detail error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+
+router.get('/webtoon/home', async (req, res) => {
+    try {
+        const cacheKey = 'webtoon_home';
+        const cached = cache.get(cacheKey);
+        if (cached) return res.json(cached);
+
+        const targetUrl = 'https://omegatech-api.dixonomega.tech/api/Fun/webtoon?action=home';
+        const data = await fetchExternal(targetUrl);
+        
+        if (data.success && data.data) {
+            const result = {
+                trending: data.data.trending || (Array.isArray(data.data) ? data.data : [])
+            };
+            cache.set(cacheKey, result, 3600);
+            return res.json(result);
+        }
+        res.json({ trending: [] });
+    } catch (error) {
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+router.get('/webtoon/search', async (req, res) => {
+    const { query } = req.query;
+    try {
+        const targetUrl = `https://omegatech-api.dixonomega.tech/api/Fun/webtoon?action=search&query=${encodeURIComponent(query)}`;
+        const data = await fetchExternal(targetUrl);
+        if (data.success && data.data) {
+            const result = {
+                results: Array.isArray(data.data) ? data.data : (data.data.results || [])
+            };
+            return res.json(result);
+        }
+        res.json({ results: [] });
+    } catch (error) {
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+router.get('/webtoon/detail', async (req, res) => {
+    const { url } = req.query;
+    try {
+        const targetUrl = `https://omegatech-api.dixonomega.tech/api/Fun/webtoon?action=detail&url=${encodeURIComponent(url)}`;
+        const data = await fetchExternal(targetUrl);
+        if (data.success && data.data) {
+            return res.json(data.data);
+        }
+        res.status(404).json({ error: "Not found" });
+    } catch (error) {
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+router.get('/webtoon/read', async (req, res) => {
+    const { url } = req.query;
+    try {
+        const targetUrl = `https://omegatech-api.dixonomega.tech/api/Fun/webtoon?action=read&url=${encodeURIComponent(url)}`;
+        const data = await fetchExternal(targetUrl);
+        if (data.success && data.data) {
+            return res.json(data.data);
+        }
+        res.status(404).json({ error: "Not found" });
+    } catch (error) {
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+
+
+router.get('/stream/proxy', (req, res) => {
+    let targetUrl = req.query.url;
+    if (!targetUrl) return res.status(400).send('Missing url parameter');
+    
+    let targetHost;
+    try {
+        const urlObj = new URL(targetUrl);
+        targetHost = urlObj.hostname;
+    } catch (e) {
+        return res.status(400).send('Invalid target URL');
+    }
+    
+    proxyStreamRequest(req, res, targetUrl, {
+        'Origin': `https://${targetHost}`,
+        'Referer': `https://${targetHost}/`
+    });
+});
+
 router.get('/stream/:token', (req, res) => {
     const tokenOrUrl = req.params.token;
     
@@ -725,6 +1360,18 @@ router.get('/stream/:token', (req, res) => {
         'Origin': `https://${targetHost}`,
         'Referer': `https://${targetHost}/`
     });
+});
+
+
+router.use(['/tv', '/stream'], (req, res, next) => {
+    const path = req.path;
+    if (path.endsWith('.m3u8') || path.endsWith('.ts') || path.endsWith('.m3u') || path.endsWith('.key')) {
+        console.warn(`[STREAM PROXY] Caught unrewritten relative path: ${path}`);
+        
+        
+        return res.status(404).send('Not Found');
+    }
+    next();
 });
 
 export default router;

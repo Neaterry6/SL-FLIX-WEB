@@ -8,17 +8,17 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [
       react(),
-      
+      // Only enable source maps in development
       ...(isProduction ? [] : [])
     ],
     build: {
       outDir: 'dist',
-      sourcemap: false, 
+      sourcemap: false, // Always disabled in production
       minify: 'terser',
-      target: 'es2020', 
+      target: 'es2020', // Fix ESM/strict mode issues
       cssCodeSplit: true,
       assetsInlineLimit: 4096,
-      reportCompressedSize: false, 
+      reportCompressedSize: false, // Faster builds
       emptyOutDir: true,
       chunkSizeWarningLimit: 1000,
       terserOptions: {
@@ -28,7 +28,7 @@ export default defineConfig(({ mode }) => {
           pure_funcs: isProduction ? ['console.log', 'console.info', 'console.debug'] : [],
         },
         mangle: isProduction ? {
-          properties: false, 
+          properties: false, // Fix ReactCurrentOwner error - don't mangle React internals
         } : true,
         format: {
           comments: false,
@@ -41,7 +41,7 @@ export default defineConfig(({ mode }) => {
             'vendor-hls': ['hls.js'],
             'vendor-icons': ['lucide-react'],
           },
-          
+          // Obfuscated chunk names for production
           chunkFileNames: isProduction ? 'assets/[hash].js' : 'assets/[name]-[hash].js',
           entryFileNames: isProduction ? 'assets/[hash].js' : 'assets/[name]-[hash].js',
           assetFileNames: isProduction ? 'assets/[hash].[ext]' : 'assets/[name]-[hash].[ext]',
@@ -50,7 +50,7 @@ export default defineConfig(({ mode }) => {
     },
     optimizeDeps: {
       include: ['react', 'react-dom', 'hls.js', 'lucide-react'],
-      exclude: [], 
+      exclude: [], // Prevent dup React
     },
     define: {
       __DEV__: !isProduction,
@@ -60,6 +60,12 @@ export default defineConfig(({ mode }) => {
       port: 3000,
       host: true,
       proxy: {
+        '/api-omegatech': {
+          target: 'https://omegatech-api.dixonomega.tech',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api-omegatech/, ''),
+          timeout: 15000
+        },
         '/api-metadata': {
           target: 'https://h5-api.aoneroom.com/wefeed-h5api-bff',
           changeOrigin: true,
@@ -90,16 +96,6 @@ export default defineConfig(({ mode }) => {
           },
           timeout: 15000
         },
-        '/api-omegatech': {
-          target: 'https://omegatech-api.dixonomega.tech',
-          changeOrigin: true,
-          rewrite: (path) => path.replace(/^\/api-omegatech/, ''),
-          headers: {
-            'Origin': 'https://omegatech-api.dixonomega.tech',
-            'Referer': 'https://omegatech-api.dixonomega.tech/'
-          },
-          timeout: 15000
-        },
         '/api-stream': {
           target: 'https://movieapi.giftedtech.co.ke',
           changeOrigin: true,
@@ -109,14 +105,51 @@ export default defineConfig(({ mode }) => {
             'Referer': 'https://movieapi.giftedtech.co.ke/'
           },
           timeout: 15000
+        },
+        // Proxy admin and API routes to Express backend
+        '/admin': {
+          target: 'http://localhost:3000',
+          changeOrigin: true,
+          timeout: 10000
+        },
+        '/api/visitors': {
+          target: 'http://localhost:3000',
+          changeOrigin: true,
+          timeout: 10000
+        },
+        '/api/domain': {
+          target: 'http://localhost:3000',
+          changeOrigin: true,
+          timeout: 10000
+        },
+        '/api/event': {
+          target: 'http://localhost:3000',
+          changeOrigin: true,
+          timeout: 10000
+        },
+        '/_i18n': {
+          target: 'http://localhost:3000',
+          changeOrigin: true,
+          timeout: 10000
+        },
+        '/manifest.webmanifest': {
+          target: 'http://localhost:3000',
+          changeOrigin: true,
+          timeout: 10000
         }
       }
     },
-    
+    // Production server configuration for standalone preview
     preview: {
       port: Number(process.env.PORT) || 3000,
       host: true,
       proxy: {
+        '/api-omegatech': {
+          target: 'https://omegatech-api.dixonomega.tech',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api-omegatech/, ''),
+          timeout: 15000
+        },
         '/api-metadata': {
           target: 'https://h5-api.aoneroom.com/wefeed-h5api-bff',
           changeOrigin: true,
@@ -147,16 +180,6 @@ export default defineConfig(({ mode }) => {
           },
           timeout: 15000
         },
-        '/api-omegatech': {
-          target: 'https://omegatech-api.dixonomega.tech',
-          changeOrigin: true,
-          rewrite: (path) => path.replace(/^\/api-omegatech/, ''),
-          headers: {
-            'Origin': 'https://omegatech-api.dixonomega.tech',
-            'Referer': 'https://omegatech-api.dixonomega.tech/'
-          },
-          timeout: 15000
-        },
         '/api-stream': {
           target: 'https://movieapi.giftedtech.co.ke',
           changeOrigin: true,
@@ -166,6 +189,36 @@ export default defineConfig(({ mode }) => {
             'Referer': 'https://movieapi.giftedtech.co.ke/'
           },
           timeout: 15000
+        },
+        '/admin': {
+          target: 'http://localhost:3000',
+          changeOrigin: true,
+          timeout: 10000
+        },
+        '/api/visitors': {
+          target: 'http://localhost:3000',
+          changeOrigin: true,
+          timeout: 10000
+        },
+        '/api/domain': {
+          target: 'http://localhost:3000',
+          changeOrigin: true,
+          timeout: 10000
+        },
+        '/api/event': {
+          target: 'http://localhost:3000',
+          changeOrigin: true,
+          timeout: 10000
+        },
+        '/_i18n': {
+          target: 'http://localhost:3000',
+          changeOrigin: true,
+          timeout: 10000
+        },
+        '/manifest.webmanifest': {
+          target: 'http://localhost:3000',
+          changeOrigin: true,
+          timeout: 10000
         }
       }
     }

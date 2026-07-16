@@ -4,55 +4,164 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="theme-color" content="#000000">
+    <meta name="theme-color" content="#0a0a0a">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="description" content="Watch Movies, TV Series & Anime Online Free in HD. Stream latest films and shows without registration. SL-FLIX is your ultimate destination for entertainment.">
-    <meta name="keywords" content="free movies, watch movies online, stream series, anime online, hd movies, free streaming, sl-flix">
+    <meta name="description" content="Watch Movies, TV Series & Anime Online Free in HD. Stream latest films and shows without registration. SLFLIX is your ultimate destination for entertainment.">
+    <meta name="keywords" content="free movies, watch movies online, stream series, anime online, hd movies, free streaming, slflix, sl-flix, omegatech">
     <meta name="google-site-verification" content="verification_token" />
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
     
+    <!-- Dynamic SEO Tags -->
     <meta property="og:type" content="website">
-    <meta property="og:title" content="SL-FLIX | Watch Movies & Series Online">
-    <meta property="og:description" content="Stream Movies, Series, and Anime in HD. No ads, just entertainment.">
-    <meta property="og:site_name" content="SL-FLIX">
+    <meta property="og:title" content="SLFLIX | Watch Movies & Series Online Free">
+    <meta property="og:description" content="Stream Movies, Series, and Anime in HD. No ads, just entertainment. Your ultimate destination for streaming.">
+    <meta property="og:site_name" content="SLFLIX">
     <meta property="og:image" content="/media/favicon.png">
-    <meta property="og:url" content="https://slflix-premium.web.app">
+
+    <meta property="og:url" content="https://sl-flix.dixonomega.tech">
     
+    <!-- Twitter Tags -->
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="SL-FLIX | Watch Movies & Series Online">
+    <meta name="twitter:title" content="SLFLIX | Watch Movies & Series Online Free">
     <meta name="twitter:description" content="Stream Movies, Series, and Anime in HD. No ads, just entertainment.">
-    <meta name="twitter:image" content="/media/favicon.png">
+    <meta name="twitter:image" content="https://files.catbox.moe/lhdbe0.png">
     
+    <!-- Favicon & Icons -->
     <link rel="icon" type="image/png" href="/media/favicon.png">
     <link rel="shortcut icon" href="/media/favicon.png">
     <link rel="apple-touch-icon" href="/media/favicon.png">
     
-    <title>SL-FLIX | Watch Movies and TV Shows</title>
+    <title>SL-FLIX PRO | Premium Streaming</title>
     
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;600;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#00e5ff',
+                        'primary-glow': 'rgba(0, 229, 255, 0.4)',
+                        bg: '#0a0a0a',
+                        'card-bg': '#141414',
+                        border: '#333',
+                    },
+                    fontFamily: {
+                        sans: ['Manrope', 'sans-serif'],
+                    },
+                    screens: {
+                        'xs': '400px',
+                        '3xl': '1920px',
+                    },
+                    animation: {
+                        'spin-slow': 'spin 3s linear infinite',
+                        'fade-in': 'fadeIn 0.4s ease-out forwards',
+                        'bounce-slow': 'bounce 3s infinite',
+                    },
+                    keyframes: {
+                        fadeIn: {
+                            '0%': { opacity: '0', transform: 'translateY(10px)' },
+                            '100%': { opacity: '1', transform: 'translateY(0)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
     <style>
-        @keyframes slideLeft {
-            0% { transform: translateX(100%); }
-            100% { transform: translateX(0); }
+        .loader {
+            --path: white;
+            --dot: #f40af0;
+            --duration: 3s;
+            width: 44px;
+            height: 44px;
+            position: relative;
+            display: inline-block;
+            margin: 0 16px;
         }
-        .animate-slide-left {
-            animation: slideLeft 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        .loader:before {
+            content: "";
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            position: absolute;
+            display: block;
+            background: var(--dot);
+            top: 37px;
+            left: 19px;
+            transform: translate(-18px, -18px);
+            -webkit-animation: dotRect var(--duration) cubic-bezier(0.785, 0.135, 0.15, 0.86) infinite;
+                    animation: dotRect var(--duration) cubic-bezier(0.785, 0.135, 0.15, 0.86) infinite;
         }
+        .loader svg {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        .loader svg rect,
+        .loader svg polygon,
+        .loader svg circle {
+            fill: none;
+            stroke: var(--path);
+            stroke-width: 10px;
+            stroke-linejoin: round;
+            stroke-linecap: round;
+        }
+        .loader svg polygon {
+            stroke-dasharray: 145 76 145 76;
+            stroke-dashoffset: 0;
+            -webkit-animation: pathTriangle var(--duration) cubic-bezier(0.785, 0.135, 0.15, 0.86) infinite;
+                    animation: pathTriangle var(--duration) cubic-bezier(0.785, 0.135, 0.15, 0.86) infinite;
+        }
+        .loader svg rect {
+            stroke-dasharray: 192 64 192 64;
+            stroke-dashoffset: 0;
+            -webkit-animation: pathRect 3s cubic-bezier(0.785, 0.135, 0.15, 0.86) infinite;
+                    animation: pathRect 3s cubic-bezier(0.785, 0.135, 0.15, 0.86) infinite;
+        }
+        .loader svg circle {
+            stroke-dasharray: 150 50 150 50;
+            stroke-dashoffset: 75;
+            -webkit-animation: pathCircle var(--duration) cubic-bezier(0.785, 0.135, 0.15, 0.86) infinite;
+                    animation: pathCircle var(--duration) cubic-bezier(0.785, 0.135, 0.15, 0.86) infinite;
+        }
+        .loader.triangle { width: 48px; }
+        .loader.triangle:before {
+            left: 21px;
+            transform: translate(-10px, -18px);
+            -webkit-animation: dotTriangle var(--duration) cubic-bezier(0.785, 0.135, 0.15, 0.86) infinite;
+                    animation: dotTriangle var(--duration) cubic-bezier(0.785, 0.135, 0.15, 0.86) infinite;
+        }
+        
+        @-webkit-keyframes pathTriangle { 33% { stroke-dashoffset: 74; } 66% { stroke-dashoffset: 147; } 100% { stroke-dashoffset: 221; } }
+        @keyframes pathTriangle { 33% { stroke-dashoffset: 74; } 66% { stroke-dashoffset: 147; } 100% { stroke-dashoffset: 221; } }
+        @-webkit-keyframes dotTriangle { 33% { transform: translate(0, 0); } 66% { transform: translate(10px, -18px); } 100% { transform: translate(-10px, -18px); } }
+        @keyframes dotTriangle { 33% { transform: translate(0, 0); } 66% { transform: translate(10px, -18px); } 100% { transform: translate(-10px, -18px); } }
+        @-webkit-keyframes pathRect { 25% { stroke-dashoffset: 64; } 50% { stroke-dashoffset: 128; } 75% { stroke-dashoffset: 192; } 100% { stroke-dashoffset: 256; } }
+        @keyframes pathRect { 25% { stroke-dashoffset: 64; } 50% { stroke-dashoffset: 128; } 75% { stroke-dashoffset: 192; } 100% { stroke-dashoffset: 256; } }
+        @-webkit-keyframes dotRect { 25% { transform: translate(0, 0); } 50% { transform: translate(18px, -18px); } 75% { transform: translate(0, -36px); } 100% { transform: translate(-18px, -18px); } }
+        @keyframes dotRect { 25% { transform: translate(0, 0); } 50% { transform: translate(18px, -18px); } 75% { transform: translate(0, -36px); } 100% { transform: translate(-18px, -18px); } }
+        @-webkit-keyframes pathCircle { 25% { stroke-dashoffset: 125; } 50% { stroke-dashoffset: 175; } 75% { stroke-dashoffset: 225; } 100% { stroke-dashoffset: 275; } }
+        @keyframes pathCircle { 25% { stroke-dashoffset: 125; } 50% { stroke-dashoffset: 175; } 75% { stroke-dashoffset: 225; } 100% { stroke-dashoffset: 275; } }
+
         body {
-            background-color: #000000;
+            background-color: #0a0a0a;
             color: #ffffff;
             overflow-x: hidden;
             user-select: none;
             -webkit-user-select: none;
             -webkit-tap-highlight-color: transparent;
         }
-        ::-webkit-scrollbar { width: 4px; height: 4px; }
-        ::-webkit-scrollbar-track { background: #000000; }
-        ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 4px; }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #000; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #00e5ff; }
+
+        /* Hide scrollbar for horizontal containers but keep functionality */
         .scrollbar-hide::-webkit-scrollbar {
             display: none;
         }
@@ -60,12 +169,19 @@
             -ms-overflow-style: none;
             scrollbar-width: none;
         }
-        .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
-        .pt-safe { padding-top: env(safe-area-inset-top); }
+        
+        /* Safe Area for iPhones with Notch */
+        .pb-safe {
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+        .pt-safe {
+            padding-top: env(safe-area-inset-top);
+        }
     </style>
 </head>
 <body>
     <div id="root"></div>
+    <!-- App Entry Point -->
     <script type="module" src="/index.tsx"></script>
 </body>
 </html>

@@ -1,35 +1,41 @@
-
+/**
+ * SEO Service for SL-FLIX
+ * Handles dynamic meta tags, Open Graph, Twitter Cards, and JSON-LD structured data
+ * Optimized for Google indexing and social media sharing
+ */
 
 import { MovieResult } from '../types';
 
 const SITE_NAME = 'SL-FLIX';
-const SITE_URL = typeof window !== 'undefined' ? window.location.origin : 'https://netflix-clone.web.app';
+const SITE_URL = 'https://sl-flix.dixonomega.tech';
 const DEFAULT_IMAGE = 'https://files.catbox.moe/lhdbe0.png';
 const DEFAULT_DESCRIPTION = 'Watch Movies, TV Series & Anime Online Free in HD. Stream latest films and shows without registration.';
 
-
+/**
+ * Update document meta tags for SEO - optimized for Google movie indexing
+ */
 export const updateMetaTags = (movie: MovieResult | null, isHome: boolean = false) => {
-    
+    // Get movie data or use defaults
     const movieTitle = movie?.title || '';
     
-    
+    // Title format: "Movie Name | SL-FLIX" for better SEO - shows movie name first
     const title = movie 
         ? `${movieTitle} | Watch Online Free - ${SITE_NAME}`
         : `${SITE_NAME} | Free Movies, TV Shows & Anime Streaming`;
     
-    
+    // Description with movie name for better Google indexing
     const description = movie 
         ? `Watch ${movieTitle} online free in HD. ${movie.description?.slice(0, 100) || movie.genre || 'Stream now on ' + SITE_NAME}. ${movie.releaseDate ? 'Released ' + movie.releaseDate + '.' : ''}`
         : DEFAULT_DESCRIPTION;
     
-    
+    // Use movie cover image for social sharing - this shows movie image when link is shared
     const image = movie?.cover || movie?.thumbnail || DEFAULT_IMAGE;
     const url = window.location.href;
     
-    
+    // Update document title
     document.title = title;
     
-    
+    // Helper to set or update meta tag
     const setMeta = (property: string, content: string, isName: boolean = false) => {
         let el: HTMLMetaElement | null = isName 
             ? document.querySelector(`meta[name="${property}"]`) as HTMLMetaElement
@@ -44,24 +50,24 @@ export const updateMetaTags = (movie: MovieResult | null, isHome: boolean = fals
         el.setAttribute('content', content);
     };
     
-    
+    // Standard Meta Tags - optimized for Google
     setMeta('description', description, true);
     
-    
+    // Keywords - include movie name for better Google indexing
     const keywords = movie 
         ? `${movieTitle}, watch ${movieTitle} online, stream ${movieTitle}, ${movie.genre || ''}, ${movie.countryName || ''}, free movie streaming, watch online free, hd movies, ${movie.type}, ${movie.releaseDate || ''}`
         : 'free movies, tv shows, anime, streaming, watch online, hd, 4k, movies online, series streaming';
     setMeta('keywords', keywords, true);
     
-    
+    // Robots directive for Google - allow full indexing
     setMeta('robots', 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1', true);
     
-    
+    // Googlebot directives
     setMeta('googlebot', 'index, follow, all', true);
     setMeta('googlebot-news', 'index, follow', true);
     setMeta('googlebot-video', 'index, follow', true);
     
-    
+    // Open Graph / Facebook - Movie specific with movie image
     setMeta('og:type', isHome ? 'website' : 'video.movie');
     setMeta('og:title', title);
     setMeta('og:description', description);
@@ -73,7 +79,7 @@ export const updateMetaTags = (movie: MovieResult | null, isHome: boolean = fals
     setMeta('og:site_name', SITE_NAME);
     setMeta('og:locale', 'en_US');
     
-    
+    // Video specific OG tags for movie pages
     if (!isHome && movie) {
         setMeta('video:title', movieTitle);
         setMeta('video:description', description);
@@ -83,7 +89,7 @@ export const updateMetaTags = (movie: MovieResult | null, isHome: boolean = fals
         setMeta('video:tag', movie.genre || '');
     }
     
-    
+    // Twitter Card - optimized with movie image
     setMeta('twitter:card', 'summary_large_image');
     setMeta('twitter:title', title);
     setMeta('twitter:description', description);
@@ -92,13 +98,13 @@ export const updateMetaTags = (movie: MovieResult | null, isHome: boolean = fals
     setMeta('twitter:site', '@slflix');
     setMeta('twitter:creator', '@slflix');
     
-    
+    // Additional SEO meta tags
     setMeta('author', SITE_NAME, true);
     setMeta('copyright', `© ${new Date().getFullYear()} ${SITE_NAME}`, true);
     setMeta('language', 'english', true);
     setMeta('revisit-after', '1 day', true);
     
-    
+    // Canonical URL
     let canonical = document.querySelector('link[rel="canonical"]') as HTMLLinkElement;
     if (!canonical) {
         canonical = document.createElement('link');
@@ -107,13 +113,15 @@ export const updateMetaTags = (movie: MovieResult | null, isHome: boolean = fals
     }
     canonical.setAttribute('href', url);
     
-    
+    // Update JSON-LD structured data for Google rich snippets
     updateJsonLd(movie, isHome);
 };
 
-
+/**
+ * Update JSON-LD structured data for Google rich snippets
+ */
 const updateJsonLd = (movie: MovieResult | null, isHome: boolean) => {
-    
+    // Remove existing schema
     const existing = document.getElementById('json-ld-schema');
     if (existing) {
         existing.remove();
@@ -122,7 +130,7 @@ const updateJsonLd = (movie: MovieResult | null, isHome: boolean) => {
     let schema: any;
     
     if (isHome || !movie) {
-        
+        // Website schema for home page
         schema = {
             "@context": "https://schema.org",
             "@type": "WebSite",
@@ -147,7 +155,7 @@ const updateJsonLd = (movie: MovieResult | null, isHome: boolean) => {
             }
         };
     } else {
-        
+        // Movie schema for detail pages - optimized for Google
         const movieType = movie.type?.toLowerCase().includes('series') || movie.type?.toLowerCase().includes('tv') 
             ? 'TVSeries' 
             : 'Movie';
@@ -190,7 +198,7 @@ const updateJsonLd = (movie: MovieResult | null, isHome: boolean) => {
             }
         };
         
-        
+        // Add cast if available
         if (movie.cast && movie.cast.length > 0) {
             (schema as any).actor = movie.cast.slice(0, 10).map(c => ({
                 "@type": "Person",
@@ -199,7 +207,7 @@ const updateJsonLd = (movie: MovieResult | null, isHome: boolean) => {
             }));
         }
         
-        
+        // Add trailer if available
         if (movie.trailerUrl) {
             (schema as any).video = {
                 "@type": "VideoObject",
@@ -213,7 +221,7 @@ const updateJsonLd = (movie: MovieResult | null, isHome: boolean) => {
         }
     }
     
-    
+    // Add the schema script
     const script = document.createElement('script');
     script.id = 'json-ld-schema';
     script.type = 'application/ld+json';
@@ -221,7 +229,9 @@ const updateJsonLd = (movie: MovieResult | null, isHome: boolean) => {
     document.head.appendChild(script);
 };
 
-
+/**
+ * Generate Movie schema for Google rich snippets
+ */
 export const getMovieSchema = (movie: MovieResult) => ({
     "@context": "https://schema.org",
     "@type": movie.type?.toLowerCase().includes('series') ? "TVSeries" : "Movie",
@@ -252,7 +262,9 @@ export const getMovieSchema = (movie: MovieResult) => ({
     } : undefined
 });
 
-
+/**
+ * Generate VideoObject schema for video pages
+ */
 export const getVideoSchema = (movie: MovieResult) => ({
     "@context": "https://schema.org",
     "@type": "VideoObject",
@@ -270,14 +282,18 @@ export const getVideoSchema = (movie: MovieResult) => ({
     }]
 });
 
-
+/**
+ * Reset SEO to home page defaults
+ */
 export const resetToHomeSEO = () => {
     updateMetaTags(null, true);
 };
 
 export default updateMetaTags;
 
-
+/**
+ * Get current page SEO info
+ */
 export const getCurrentSeoInfo = () => {
     return {
         title: document.title,

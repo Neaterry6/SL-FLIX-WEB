@@ -1,13 +1,10 @@
-
-
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { VideoSource, Subtitle, Season, MovieResult, MovieDub } from '../types';
+import { VideoSource, Subtitle, Season, MovieResult } from '../types';
 import Hls from 'hls.js';
 import SubtitleManager, { detectUserLanguage, findBestSubtitle } from './SubtitleManager';
 import SeasonSelector from './SeasonSelector';
 import BulkDownloadModal from './BulkDownloadModal';
 import VideoPlayerBulkModalWrapper from './VideoPlayerBulkModalWrapper';
-
 
 interface VideoPlayerProps {
   title: string;
@@ -26,20 +23,16 @@ interface VideoPlayerProps {
   isTrailer?: boolean;
   isLive?: boolean;
   startTime?: number;
-
   movie?: MovieResult;
   currentSeason?: number;
   currentEpisode?: number;
   onSeasonChange?: (season: number) => void;
   onEpisodeChange?: (season: number, episode: number) => void;
-  
   showBulkDownload?: boolean;
   onToggleBulkDownload?: () => void;
   movieId?: string;
   seasonNumber?: number;
-  onDubSelect?: (dub: MovieDub) => void;
 }
-
 
 const formatTime = (seconds: number): string => {
   if (isNaN(seconds) || seconds === Infinity || seconds < 0) return "00:00";
@@ -49,7 +42,6 @@ const formatTime = (seconds: number): string => {
   if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   return `${m}:${s.toString().padStart(2, '0')}`;
 };
-
 
 const convertSrtToVtt = (srtContent: string): string => {
   if (srtContent.trim().startsWith('WEBVTT')) {
@@ -64,7 +56,6 @@ const convertSrtToVtt = (srtContent: string): string => {
     if (!line) continue;
     
     if (line.includes('-->')) {
-      
       line = line.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/, '$1.$2');
       line = line.replace(/,/g, '.');
       vtt += line + '\n';
@@ -85,9 +76,7 @@ const convertSrtToVtt = (srtContent: string): string => {
   return vtt;
 };
 
-
 const vttBlobCache = new Map<string, string>();
-
 
 const convertSrtUrlToVttBlob = async (srtUrl: string): Promise<string> => {
   if (vttBlobCache.has(srtUrl)) {
@@ -104,7 +93,6 @@ const convertSrtUrlToVttBlob = async (srtUrl: string): Promise<string> => {
         }
       });
     } catch (e) {
-      console.warn('[Subtitle] Direct fetch failed, trying CORS proxy for:', srtUrl);
       response = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(srtUrl)}`);
     }
     
@@ -123,14 +111,11 @@ const convertSrtUrlToVttBlob = async (srtUrl: string): Promise<string> => {
     const blobUrl = URL.createObjectURL(blob);
     
     vttBlobCache.set(srtUrl, blobUrl);
-    console.log('[Subtitle] Converted SRT to VTT blob URL');
     return blobUrl;
   } catch (error) {
-    console.warn('[Subtitle] Error converting SRT to VTT:', error);
     return srtUrl;
   }
 };
-
 
 const getYoutubeId = (url: string): string | null => {
   if (!url) return null;
@@ -138,7 +123,6 @@ const getYoutubeId = (url: string): string | null => {
   const match = url.match(regExp);
   return (match && match[2].length === 11) ? match[2] : null;
 };
-
 
 const FastStreamLoader: React.FC<{ buffered?: number }> = ({ buffered }) => {
   return (
@@ -174,7 +158,6 @@ const FastStreamLoader: React.FC<{ buffered?: number }> = ({ buffered }) => {
         </div>
       </div>
 
-      
       <div className="mt-4 text-center">
         <div className="flex items-center justify-center gap-2 mb-1">
           <div className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse-fast"></div>
@@ -184,15 +167,13 @@ const FastStreamLoader: React.FC<{ buffered?: number }> = ({ buffered }) => {
         <span className="text-white/80 text-sm font-medium tracking-wide">Loading Stream</span>
         {buffered && buffered > 0 && (
           <span className="text-primary/80 text-xs mt-1 block font-mono">
-             {Math.round((buffered || 0) * 100)}% buffered
+            {Math.round((buffered || 0) * 100)}% buffered
           </span>
         )}
       </div>
     </div>
   );
 };
-
-
 
 const TrailerPlayer: React.FC<{
   title: string;
@@ -245,7 +226,6 @@ const TrailerPlayer: React.FC<{
   );
 };
 
-
 const StreamingPlayer: React.FC<VideoPlayerProps> = ({ 
   title, 
   subTitle, 
@@ -263,15 +243,13 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
   currentSeason = 1,
   currentEpisode = 1,
   onSeasonChange,
-  onEpisodeChange,
-  onDubSelect
+  onEpisodeChange
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const progressRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  
   
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(initialTime);
@@ -281,7 +259,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
   const [showControls, setShowControls] = useState(true);
   const [locked, setLocked] = useState(false);
   
-  
   const [showSettings, setShowSettings] = useState(false);
   const [showSourceSelect, setShowSourceSelect] = useState(false);
   const [showSeasonSelector, setShowSeasonSelector] = useState(false);
@@ -289,8 +266,7 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [resizeMode, setResizeMode] = useState<'contain' | 'cover'>('contain');
   const [activeSourceIndex, setActiveSourceIndex] = useState(() => {
-    const saved = localStorage.getItem('slflix_preferred_quality');
-    return 0; 
+    return 0;
   });
   const [preferredQuality, setPreferredQuality] = useState(() => {
     return localStorage.getItem('slflix_preferred_quality') || 'Auto';
@@ -303,31 +279,21 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
   const [convertedSubUrls, setConvertedSubUrls] = useState<Record<number, string>>({});
   const [isConvertingSubs, setIsConvertingSubs] = useState(false);
   
-  
   const [networkState, setNetworkState] = useState<'good' | 'unstable' | 'offline'>('good');
   const [showNextCountdown, setShowNextCountdown] = useState(false);
   const [countdown, setCountdown] = useState(5);
   const [showReconnected, setShowReconnected] = useState(false);
+  const [autoPlayNext, setAutoPlayNext] = useState(() => {
+    return localStorage.getItem('slflix_autoplay_next') !== 'false';
+  });
+  const hasTriggeredAutoPlayRef = useRef(false);
 
-  const [jumpIndicator, setJumpIndicator] = useState<{ type: 'forward' | 'backward' | 'play' | 'pause'; visible: boolean; text?: string } | null>(null);
-  const jumpTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  const triggerVisualFeedback = useCallback((type: 'forward' | 'backward' | 'play' | 'pause', text?: string) => {
-    setJumpIndicator({ type, visible: true, text });
-    if (jumpTimeoutRef.current) clearTimeout(jumpTimeoutRef.current);
-    jumpTimeoutRef.current = setTimeout(() => {
-      setJumpIndicator(null);
-    }, 850);
-  }, []);
-
-  
   const attemptPlay = useCallback(() => { 
     const video = videoRef.current; 
     if (!video) return; 
     video.play().catch(() => setPlaying(false)); 
   }, []);
 
-  
   useEffect(() => {
     const handleOffline = () => setNetworkState('offline');
     const handleOnline = () => {
@@ -345,7 +311,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, [playing, attemptPlay]);
 
-  
   useEffect(() => {
     let timer: NodeJS.Timeout;
     if (showNextCountdown && countdown > 0) {
@@ -357,7 +322,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
     return () => clearTimeout(timer);
   }, [showNextCountdown, countdown, onPlayNext]);
 
-  
   useEffect(() => {
     if (subtitles.length === 0 || activeSubtitle === -1) return;
     
@@ -369,7 +333,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
           const vttUrl = await convertSrtUrlToVttBlob(sub.url);
           if (vttUrl !== sub.url) {
             setConvertedSubUrls(prev => ({ ...prev, [activeSubtitle]: vttUrl }));
-            console.log('[VideoPlayer] Converted subtitle', activeSubtitle, 'to VTT blob');
           }
         } catch (e) {
           console.warn('[VideoPlayer] Failed to convert subtitle', activeSubtitle);
@@ -381,7 +344,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
     convertActiveSubtitle();
   }, [subtitles, activeSubtitle, convertedSubUrls]);
 
-  
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (minimized || locked) return;
@@ -431,7 +393,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, [playing, minimized, locked, showSettings, showSourceSelect, showSeasonSelector]);
 
-  
   useEffect(() => {
     if (subtitles.length > 0 && activeSubtitle === -1) {
       const bestSubtitle = findBestSubtitle(subtitles);
@@ -441,7 +402,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [subtitles]);
 
-  
   const toggleFullscreen = useCallback(() => {
     if (locked) return;
     if (!document.fullscreenElement && containerRef.current) {
@@ -451,7 +411,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [locked]);
 
-  
   const updateBuffered = useCallback(() => {
     const video = videoRef.current;
     if (video && video.buffered.length > 0) {
@@ -460,7 +419,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, []);
 
-  
   const loadSource = useCallback((source: VideoSource, sourceIndex: number) => {
     const video = videoRef.current;
     if (!video) return;
@@ -469,12 +427,11 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
     setVideoError(null);
     setActiveSourceIndex(sourceIndex);
     
-    
     if (source.quality) {
-      setPreferredQuality(String(source.quality));
-      localStorage.setItem('slflix_preferred_quality', String(source.quality));
+      const qStr = String(source.quality);
+      setPreferredQuality(qStr);
+      localStorage.setItem('slflix_preferred_quality', qStr);
     }
-    
     
     if (hlsRef.current) { 
       hlsRef.current.destroy(); 
@@ -486,22 +443,13 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
 
     const isHlsStream = source.type === 'hls' || url.includes('.m3u8');
     
-    if (Hls.isSupported() && isHlsStream) {
-      
+    if (isHlsStream && video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = url;
+    } else if (Hls.isSupported() && isHlsStream) {
       const hls = new Hls({
-        enableWorker: true,
-        lowLatencyMode: true,
-        backBufferLength: 90,
-        maxBufferLength: 60,
-        maxBufferSize: 60 * 1000 * 1000,
-        startLevel: -1, 
-        fragLoadingMaxRetry: 10,
-        manifestLoadingMaxRetry: 10,
-        fragLoadingTimeOut: 20000,
-        manifestLoadingTimeOut: 20000,
-        
-        liveSyncDurationCount: 3,
-        liveMaxLatencyDurationCount: 5,
+        capLevelToPlayerSize: true,
+        autoStartLoad: true,
+        debug: false
       });
       
       hlsRef.current = hls;
@@ -513,11 +461,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
         if (initialTime > 0) video.currentTime = initialTime;
         video.playbackRate = playbackSpeed;
         attemptPlay();
-        
-        
-        if (subtitles.length > 0) {
-          
-        }
       });
       
       hls.on(Hls.Events.FRAG_LOADED, () => {
@@ -531,51 +474,50 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
             setNetworkState('unstable');
             setTimeout(() => setNetworkState(prev => prev === 'unstable' ? 'good' : prev), 5000);
           }
-        }
-        if (data.fatal) {
-          console.error('[HLS Error]', data.type, data.details);
           
+          if (data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR || 
+              data.details === Hls.ErrorDetails.LEVEL_LOAD_ERROR ||
+              data.details === Hls.ErrorDetails.FRAG_LOAD_ERROR) {
+            hls.startLoad();
+          }
+        }
+        
+        if (data.fatal) {
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
             hls.startLoad();
           } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
             hls.recoverMediaError();
+          } else {
+            hls.destroy();
+            setVideoError('Fatal playback error. Please try another source.');
           }
         }
       });
       
-      
       hls.on(Hls.Events.LEVEL_SWITCHED, (_, data) => {
-        console.log('[HLS] Quality switched to level:', data.level);
       });
     } else {
-      
       video.src = url;
       
-      
       video.onloadstart = () => {
-        console.log('[Video] Load started');
         setIsBuffering(true);
       };
       
       video.oncanplay = () => { 
-        console.log('[Video] Can play');
         setIsBuffering(false); 
         attemptPlay(); 
       };
       
       video.onplaying = () => {
-        console.log('[Video] Playing');
         setIsBuffering(false);
         setPlaying(true);
       };
       
       video.onwaiting = () => {
-        console.log('[Video] Waiting for data');
         setIsBuffering(true);
       };
       
       video.onerror = (e) => {
-        console.error('[Video] Error:', video.error ? { code: video.error.code, message: video.error.message } : 'Unknown error');
         setVideoError('Failed to load video. Please try another source.');
         setIsBuffering(false);
       };
@@ -586,10 +528,9 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [initialTime, playbackSpeed, subtitles, attemptPlay, updateBuffered]);
 
-  
   useEffect(() => { 
+    hasTriggeredAutoPlayRef.current = false;
     if (sources.length > 0) {
-      
       let targetIndex = 0;
       if (preferredQuality && preferredQuality !== 'Auto') {
         const index = sources.findIndex(s => String(s.quality) === preferredQuality);
@@ -607,12 +548,10 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
     }; 
   }, [sources]);
 
-  
   useEffect(() => { 
     if (videoRef.current) videoRef.current.playbackRate = playbackSpeed; 
   }, [playbackSpeed]);
 
-  
   useEffect(() => { 
     if (videoRef.current) { 
       videoRef.current.volume = volume; 
@@ -620,7 +559,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
     } 
   }, [volume, isMuted]);
 
-  
   const handleSubtitleChange = useCallback((index: number) => {
     setActiveSubtitle(index);
     if (videoRef.current) {
@@ -631,17 +569,12 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, []);
 
-  
   useEffect(() => {
     const video = videoRef.current;
     if (!video || subtitles.length === 0) return;
 
     const initSubtitles = () => {
-      console.log('[VideoPlayer] Initializing subtitles, count:', subtitles.length);
-      
-      
       if (activeSubtitle >= 0 && video.textTracks.length > activeSubtitle) {
-        console.log('[VideoPlayer] Setting track', activeSubtitle, 'to showing');
         for (let i = 0; i < video.textTracks.length; i++) {
           video.textTracks[i].mode = (i === activeSubtitle) ? 'showing' : 'hidden';
         }
@@ -652,9 +585,7 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
       }
     };
 
-    
     if (video.readyState >= 1) {
-      
       setTimeout(initSubtitles, 500);
     } else {
       video.addEventListener('loadedmetadata', () => {
@@ -662,11 +593,9 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
       }, { once: true });
     }
 
-    
     initSubtitles();
   }, [subtitles, activeSubtitle]);
 
-  
   const handleMouseMove = useCallback(() => {
     if (minimized) return;
     setShowControls(true);
@@ -678,23 +607,19 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, [minimized, locked, playing, showSettings, showSourceSelect, showSeasonSelector]);
 
-  
   const togglePlay = useCallback(() => { 
     if (locked) return; 
     if (videoRef.current) {
-      const isPaused = videoRef.current.paused;
-      isPaused ? attemptPlay() : videoRef.current.pause(); 
-      triggerVisualFeedback(isPaused ? 'play' : 'pause');
+      videoRef.current.paused ? attemptPlay() : videoRef.current.pause(); 
     }
-  }, [locked, attemptPlay, triggerVisualFeedback]);
+  }, [locked, attemptPlay]);
   
   const skip = useCallback((seconds: number) => { 
     if (videoRef.current && !locked && !isBuffering && !isLive) {
       const newTime = videoRef.current.currentTime + seconds;
       videoRef.current.currentTime = Math.max(0, Math.min(newTime, duration || Infinity));
-      triggerVisualFeedback(seconds > 0 ? 'forward' : 'backward', `${seconds > 0 ? '+' : ''}${seconds}s`);
     } 
-  }, [locked, isBuffering, isLive, duration, triggerVisualFeedback]);
+  }, [locked, isBuffering, isLive, duration]);
   
   const cycleSpeed = useCallback(() => { 
     const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -716,7 +641,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
     if (newVol > 0 && isMuted) setIsMuted(false);
   }, [volume, isMuted]);
   
-  
   const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!progressRef.current || !duration || locked) return;
     const rect = progressRef.current.getBoundingClientRect();
@@ -725,7 +649,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
     if (videoRef.current) videoRef.current.currentTime = newTime;
   }, [duration, locked]);
 
-  
   const handleSeasonChange = useCallback((season: number) => {
     onSeasonChange?.(season);
   }, [onSeasonChange]);
@@ -735,11 +658,9 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
     setShowSeasonSelector(false);
   }, [onEpisodeChange]);
 
-  
   const bufferedPercent = duration > 0 ? (buffered / duration) * 100 : 0;
   const playedPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
 
-  
   const isSeries = movie?.type?.includes('Series') || movie?.type?.includes('TV') || (movie?.seasons && movie.seasons.length > 0);
 
   return (
@@ -747,7 +668,7 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
       ref={containerRef} 
       className={minimized 
         ? "fixed bottom-4 right-4 w-[320px] aspect-video z-[2000] bg-black shadow-2xl rounded-xl overflow-hidden cursor-pointer" 
-        : `fixed inset-0 z-[2000] bg-black group overflow-hidden ${!showControls && !locked && !showSettings && !showSourceSelect && !showSeasonSelector && playing ? 'cursor-none' : ''}`
+        : "fixed inset-0 z-[2000] bg-black group overflow-hidden"
       } 
       onMouseMove={handleMouseMove} 
       onMouseLeave={() => playing && !showSettings && !showSourceSelect && !showSeasonSelector && setShowControls(false)} 
@@ -759,11 +680,24 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
         preload="auto" 
         className={`w-full h-full bg-black ${resizeMode === 'cover' ? 'object-cover' : 'object-contain'}`} 
         playsInline 
-        
         onTimeUpdate={(e) => { 
-          setCurrentTime(e.currentTarget.currentTime); 
+          const curr = e.currentTarget.currentTime;
+          const dur = e.currentTarget.duration;
+          setCurrentTime(curr); 
           updateBuffered(); 
-          if (onProgressUpdate && duration > 0) onProgressUpdate(e.currentTarget.currentTime, duration); 
+          if (onProgressUpdate && duration > 0) onProgressUpdate(curr, duration); 
+
+          if (
+            autoPlayNext &&
+            dur > 0 &&
+            curr / dur >= 0.95 &&
+            !hasTriggeredAutoPlayRef.current &&
+            nextEpisode &&
+            onPlayNext
+          ) {
+            hasTriggeredAutoPlayRef.current = true;
+            onPlayNext();
+          }
         }}
         onDurationChange={(e) => setDuration(e.currentTarget.duration)}
         onWaiting={() => setIsBuffering(true)}
@@ -781,47 +715,18 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
         }}
         onProgress={() => updateBuffered()}
         onError={(e) => {
-          const target = e.target as HTMLVideoElement;
-          console.error('[Video] Error:', target.error ? { code: target.error.code, message: target.error.message } : 'Unknown error');
           setVideoError('Failed to load video. Please try another source.');
           setIsBuffering(false);
         }}
       >
-        {}
       </video>
 
-      {}
       {isBuffering && networkState !== 'offline' && (
         <div className="absolute inset-0 flex items-center justify-center z-50 bg-black/80">
           <FastStreamLoader buffered={bufferedPercent / 100} />
         </div>
       )}
 
-      {jumpIndicator && jumpIndicator.visible && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[100] animate-fade-in">
-          <div className="flex flex-col items-center justify-center gap-2 bg-black/75 backdrop-blur-md border border-primary/30 w-24 h-24 md:w-28 md:h-28 rounded-full shadow-[0_0_25px_rgba(0,229,255,0.4)] transform scale-100 animate-[bounce_1s_infinite] select-none">
-            {jumpIndicator.type === 'forward' && (
-              <i className="fa-solid fa-forward text-2xl md:text-3xl text-primary animate-pulse"></i>
-            )}
-            {jumpIndicator.type === 'backward' && (
-              <i className="fa-solid fa-backward text-2xl md:text-3xl text-primary animate-pulse"></i>
-            )}
-            {jumpIndicator.type === 'play' && (
-              <i className="fa-solid fa-play text-2xl md:text-3xl text-primary animate-pulse pl-1"></i>
-            )}
-            {jumpIndicator.type === 'pause' && (
-              <i className="fa-solid fa-pause text-2xl md:text-3xl text-primary animate-pulse"></i>
-            )}
-            {jumpIndicator.text && (
-              <span className="text-[10px] md:text-xs font-black text-white uppercase tracking-widest">{jumpIndicator.text}</span>
-            )}
-          </div>
-        </div>
-      )}
-
-
-
-      {}
       {videoError && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-40">
           <div className="text-center p-4">
@@ -837,7 +742,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
         </div>
       )}
 
-      {}
       {showSourceSelect && (
         <div 
           className="absolute inset-0 z-[80] bg-black/90 flex items-center justify-center p-4" 
@@ -879,7 +783,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
         </div>
       )}
 
-      {}
       {showSettings && (
         <div 
           className="absolute inset-0 z-[80] bg-black/90 flex items-center justify-center p-4" 
@@ -899,7 +802,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
               </button>
             </div>
             
-            {}
             <div className="mb-4">
               <p className="text-gray-400 text-xs uppercase mb-2 flex items-center gap-2">
                 <i className="fa-solid fa-closed-captioning"></i> Subtitles
@@ -918,35 +820,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
               </div>
             </div>
 
-            {movie?.dubs && movie.dubs.length > 1 && (
-              <div className="mb-4">
-                <p className="text-gray-400 text-xs uppercase mb-2 flex items-center gap-2">
-                  <i className="fa-solid fa-microphone"></i> Audio / Dubs
-                </p>
-                <div className="flex gap-2 flex-wrap max-h-36 overflow-y-auto scrollbar-hide">
-                  {movie.dubs.map((dub, i) => {
-                    const isSelected = dub.subjectId === movie.subjectId || dub.detailPath === movie.detailPath;
-                    return (
-                      <button 
-                        key={i} 
-                        onClick={() => {
-                          if (onDubSelect) {
-                            onDubSelect(dub);
-                            setShowSettings(false);
-                          }
-                        }} 
-                        className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-all flex items-center gap-1 ${isSelected ? 'bg-primary border-primary text-black' : 'bg-white/10 text-white border-white/5 hover:bg-white/20'}`}
-                      >
-                        {isSelected && <i className="fa-solid fa-check text-[10px]"></i>}
-                        {dub.lanName}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {}
             {isSeries && movie && (
               <div className="mb-4">
                 <p className="text-gray-400 text-xs uppercase mb-2 flex items-center gap-2">
@@ -962,7 +835,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
               </div>
             )}
 
-            {}
             <div className="mb-4">
               <p className="text-gray-400 text-xs uppercase mb-2 flex items-center gap-2">
                 <i className="fa-solid fa-gauge"></i> Speed
@@ -980,7 +852,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
               </div>
             </div>
 
-            {}
             <div>
               <p className="text-gray-400 text-xs uppercase mb-2 flex items-center gap-2">
                 <i className="fa-solid fa-expand"></i> Screen
@@ -1000,42 +871,51 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
                 </button>
               </div>
             </div>
+
+            <div className="mt-4 border-t border-white/5 pt-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-gray-400 text-xs uppercase mb-1 flex items-center gap-2">
+                    <i className="fa-solid fa-circle-play text-primary"></i> Auto-Play Next
+                  </p>
+                  <p className="text-[10px] text-gray-500">
+                    Automatically play the next episode at 95% completion
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    const newVal = !autoPlayNext;
+                    setAutoPlayNext(newVal);
+                    localStorage.setItem('slflix_autoplay_next', newVal ? 'true' : 'false');
+                  }}
+                  className={`w-12 h-6 rounded-full p-0.5 transition-colors duration-200 focus:outline-none flex items-center cursor-pointer ${autoPlayNext ? 'bg-primary justify-end' : 'bg-gray-600 justify-start'}`}
+                >
+                  <div
+                    className="bg-white w-5 h-5 rounded-full shadow-md transform transition-all duration-200"
+                  />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
 
-      {}
-      <div className={`absolute inset-0 bg-gradient-to-t from-black/95 via-transparent to-black/85 transition-opacity flex flex-col justify-between ${showControls && !locked && !showSettings && !showSourceSelect ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-        {}
-        <div className="p-4 md:p-6 flex justify-between items-start bg-gradient-to-b from-black/80 to-transparent">
-          <div className="flex items-center gap-4">
+      <div className={`absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-black/80 transition-opacity flex flex-col justify-between ${showControls && !locked && !showSettings && !showSourceSelect ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+        <div className="p-4 flex justify-between items-start">
+          <div className="flex items-center gap-3">
             <button 
               onClick={onClose} 
-              className="w-10 h-10 flex items-center justify-center text-white hover:bg-white/10 rounded-full transition-colors bg-black/40 backdrop-blur-sm"
-              title="Go Back"
+              className="w-9 h-9 flex items-center justify-center text-white hover:bg-white/10 rounded-full transition-colors"
             >
-              <i className="fa-solid fa-arrow-left text-lg"></i>
+              <i className="fa-solid fa-arrow-left"></i>
             </button>
-            <div className="flex flex-col drop-shadow-md">
-              <div className="flex items-center gap-2 mb-1 flex-wrap">
-                <span className="bg-primary/20 text-primary border border-primary/30 text-[9px] uppercase font-black px-2 py-0.5 rounded tracking-widest bg-black/20 backdrop-blur-sm">
-                  SL-FLIX Premium
-                </span>
-                {isLive && (
-                  <span className="bg-red-600 text-white text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest animate-pulse flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-white"></span> LIVE
-                  </span>
-                )}
-              </div>
-              <h2 className="text-white font-black text-sm md:text-xl tracking-tight select-all truncate sm:max-w-md md:max-w-2xl max-w-[180px]" title={title}>
-                {title}
-              </h2>
-              {subTitle && <p className="text-gray-300 text-xs mt-0.5 font-medium">{subTitle}</p>}
+            <div>
+              <h2 className="text-white font-bold text-sm truncate max-w-[200px]">{title}</h2>
+              {subTitle && <p className="text-gray-400 text-xs">{subTitle}</p>}
             </div>
           </div>
           
           <div className="flex gap-2">
-            {}
             <button 
               onClick={() => {
                 const url = window.location.href;
@@ -1045,10 +925,9 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
               className="w-9 h-9 flex items-center justify-center text-white hover:bg-[#25D366] rounded-full bg-white/10 transition-colors"
               title="Share on WhatsApp"
             >
-              <i className="fa-brands fa-whatsapp text-sm"></i>
+              <i className="fa-brands fa-whatsapp"></i>
             </button>
             
-            {}
             {isSeries && movie && (
               <>
                 <VideoPlayerBulkModalWrapper movieId={movie.subjectId || movie.detailPath || ''} seasonNumber={currentSeason} />
@@ -1078,7 +957,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
           </div>
         </div>
         
-        {}
         <div className={`absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity duration-300 ${playing && !isBuffering ? 'opacity-0' : 'opacity-100'}`}>
           <button 
             onClick={togglePlay} 
@@ -1088,27 +966,22 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
           </button>
         </div>
         
-        {}
         {!minimized && (
           <div className="p-4 space-y-3">
-            {}
             {!isLive && (
               <div 
                 ref={progressRef} 
                 onClick={handleProgressClick} 
                 className="relative h-1.5 bg-white/20 rounded-full cursor-pointer group"
               >
-                {}
                 <div 
                   className="absolute h-full bg-white/40 rounded-full transition-all" 
                   style={{ width: `${bufferedPercent}%` }}
                 />
-                {}
                 <div 
                   className="absolute h-full bg-white rounded-full transition-all" 
                   style={{ width: `${playedPercent}%` }}
                 />
-                {}
                 {isBuffering && (
                   <div 
                     className="absolute h-full bg-primary animate-pulse rounded-full" 
@@ -1118,7 +991,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
               </div>
             )}
             
-            {}
             <div className="flex justify-between items-center text-white text-xs">
               <div className="flex items-center gap-3">
                 <button onClick={togglePlay}>
@@ -1135,7 +1007,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
               </div>
               
               <div className="flex items-center gap-3">
-                {}
                 <div className="relative flex items-center gap-2 group/vol">
                   <button onClick={toggleMute} className="hover:text-primary">
                     <i className={`fa-solid ${isMuted ? 'fa-volume-xmark' : volume > 0.5 ? 'fa-volume-high' : 'fa-volume-low'}`}></i>
@@ -1153,7 +1024,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
                   </div>
                 </div>
                 
-                {}
                 <button 
                   onClick={cycleSpeed} 
                   className="font-bold hover:text-primary"
@@ -1161,7 +1031,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
                   {playbackSpeed}x
                 </button>
                 
-                {}
                 <button onClick={toggleFullscreen} className="hover:text-primary">
                   <i className="fa-solid fa-expand"></i>
                 </button>
@@ -1171,7 +1040,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
         )}
       </div>
       
-      {}
       {networkState === 'unstable' && (
         <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-[100] bg-black/80 text-white px-4 py-2 rounded-full text-xs font-bold flex items-center gap-2 shadow-lg animate-fade-in-down">
           <i className="fa-solid fa-wifi text-yellow-500"></i> Network Unstable
@@ -1192,7 +1060,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
         </div>
       )}
 
-      {}
       {showNextCountdown && (
         <div className="absolute inset-0 z-[100] bg-black/80 flex flex-col items-center justify-center animate-fade-in">
           <h2 className="text-white text-2xl font-bold mb-4">Next Episode</h2>
@@ -1234,7 +1101,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
         </div>
       )}
 
-      {}
       {locked && (
         <div className="absolute inset-0 z-[90] bg-black/80 flex items-center justify-center">
           <button 
@@ -1246,18 +1112,16 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
         </div>
       )}
       
-      {}
       <div className="absolute bottom-16 md:bottom-20 left-4 z-40 pointer-events-none select-none">
         <div className="px-3 py-1.5 bg-black/60 backdrop-blur-md rounded opacity-60 hover:opacity-80 transition-opacity">
-          <span className="text-primary text-xs font-bold tracking-wider uppercase">
-            NETFLIX
+          <span className="text-white text-xs font-bold tracking-wider">
+            SL<span className="text-primary">FLIX</span>
           </span>
         </div>
       </div>
     </div>
   );
 };
-
 
 const VideoPlayer = (props: VideoPlayerProps) => {
   if (props.isTrailer) {
@@ -1272,4 +1136,3 @@ const VideoPlayer = (props: VideoPlayerProps) => {
 };
 
 export default VideoPlayer;
-

@@ -1,4 +1,5 @@
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import fs from 'fs';
@@ -8,8 +9,6 @@ import dotenv from 'dotenv';
 import https from 'https';
 import { URL } from 'url';
 import compression from 'compression';
-import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
 import apiRouter from './server/api.js';
 
 dotenv.config();
@@ -19,35 +18,6 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 app.set('trust proxy', 1);
-
-// Security Headers with a lenient Content Security Policy allowing streaming resources
-app.use(helmet({
-    contentSecurityPolicy: {
-        directives: {
-            defaultSrc: ["'self'"],
-            scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://cdn.tailwindcss.com", "https://cdnjs.cloudflare.com"],
-            styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://cdnjs.cloudflare.com"],
-            fontSrc: ["'self'", "https://fonts.gstatic.com", "https://cdnjs.cloudflare.com"],
-            imgSrc: ["'self'", "data:", "https:", "*"],
-            connectSrc: ["'self'", "https:", "wss:", "ws:", "*"],
-            mediaSrc: ["'self'", "https:", "http:", "*"],
-            frameSrc: ["'self'", "https:", "http:"],
-        },
-    },
-    crossOriginEmbedderPolicy: false,
-    crossOriginResourcePolicy: false,
-}));
-
-// API Rate Limiting to prevent abuse and screen scraping
-const limiter = rateLimit({
-    windowMs: 1 * 60 * 1000, // 1 minute
-    max: 180, // limit each IP to 180 API requests per minute
-    message: { error: 'Too many requests, please try again later.' },
-    standardHeaders: true,
-    legacyHeaders: false,
-});
-app.use('/api', limiter);
-
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
     cors: {
@@ -55,7 +25,6 @@ const io = new Server(httpServer, {
         methods: ["GET", "POST"]
     }
 });
-
 
 const visitorData = {
     totalVisitors: 0,
@@ -66,7 +35,6 @@ const visitorData = {
     onlineUsers: 0,
     pageViews: {}
 };
-
 
 const getRegionFromIP = (ip) => {
     ip = ip.split(':').pop() || ip;
@@ -94,7 +62,6 @@ const getRegionFromIP = (ip) => {
     }
     return 'Unknown';
 };
-
 
 const trackVisitor = (ip, page = '/') => {
     const today = new Date().toDateString();
@@ -127,7 +94,6 @@ const trackVisitor = (ip, page = '/') => {
     
     visitorData.pageViews[page] = (visitorData.pageViews[page] || 0) + 1;
     
-    
     const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
     for (const [key, value] of visitorData.ips) {
         if (value.timestamp < oneDayAgo) {
@@ -135,7 +101,6 @@ const trackVisitor = (ip, page = '/') => {
         }
     }
 };
-
 
 io.on('connection', (socket) => {
     visitorData.onlineUsers++;
@@ -155,13 +120,11 @@ io.on('connection', (socket) => {
     });
 });
 
-
 app.use((req, res, next) => {
     const clientIP = req.ip || req.connection?.remoteAddress || '127.0.0.1';
     trackVisitor(clientIP, req.path);
     next();
 });
-
 
 app.use(compression({
     level: 6,
@@ -171,7 +134,6 @@ app.use(compression({
         return true;
     }
 }));
-
 
 app.use((req, res, next) => {
     if (req.url.startsWith('/assets/') || req.path === '/index.html') {
@@ -185,13 +147,11 @@ app.use((req, res, next) => {
     next();
 });
 
-
 app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-XSS-Protection', '1; mode=block');
     next();
 });
-
 
 function proxyRequest(req, res, targetHost, targetPath, extraHeaders = {}) {
     if (res.headersSent) return;
@@ -242,6 +202,34 @@ function proxyRequest(req, res, targetHost, targetPath, extraHeaders = {}) {
     }
 }
 
+const omegatechLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000,
+    max: 60,
+    message: { error: "Rate limit exceeded" },
+    keyGenerator: (req) => {
+        const forwardedHeader = req.headers['forwarded'];
+        if (forwardedHeader) {
+            const match = forwardedHeader.match(/for="?([^;"]+)"?/);
+            if (match && match[1]) return match[1].trim();
+        }
+        const xForwardedFor = req.headers['x-forwarded-for'];
+        if (xForwardedFor) {
+            return xForwardedFor.split(',')[0].trim();
+        }
+        return req.ip;
+    },
+    validate: { xForwardedForHeader: false, default: false }
+});
+
+app.use('/api-omegatech', omegatechLimiter, (req, res) => {
+    const pathWithoutPrefix = req.url.startsWith('/') ? req.url : '/' + req.url;
+    proxyRequest(
+        req, res, 
+        'omegatech-api.dixonomega.tech', 
+        pathWithoutPrefix,
+        {}
+    );
+});
 
 app.use('/api-metadata', (req, res) => {
     const pathWithoutPrefix = req.url.startsWith('/') ? req.url : '/' + req.url;
@@ -273,22 +261,8 @@ app.use('/api-cineverse', (req, res) => {
     );
 });
 
-app.use('/api-omegatech', (req, res) => {
-    const pathWithoutPrefix = req.url.startsWith('/') ? req.url : '/' + req.url;
-    proxyRequest(
-        req, res, 
-        'omegatech-api.dixonomega.tech', 
-        pathWithoutPrefix,
-        { 'Origin': 'https://omegatech-api.dixonomega.tech', 'Referer': 'https://omegatech-api.dixonomega.tech/' }
-    );
-});
-
-
-
-
 console.log('[PROXY] API proxies ready: metadata/player/cineverse/stream');
 app.use('/api', apiRouter);
-
 
 if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
@@ -309,7 +283,6 @@ if (process.env.NODE_ENV !== 'production') {
     }));
 }
 
-
 async function getDynamicHtml(req, res) {
     const pathParts = req.path.split('/').filter(Boolean);
     const isMovie = pathParts[0] === 'movie';
@@ -329,7 +302,6 @@ async function getDynamicHtml(req, res) {
     if ((isMovie || isTv) && subjectId && subjectId.length > 5) {
         try {
             const apiUrl = `https://gzmovieboxapi.septorch.tech/api/media?apikey=Godszeal&subjectId=${subjectId}`;
-            
             
             let response;
             let retries = 2;
@@ -361,39 +333,34 @@ async function getDynamicHtml(req, res) {
             if (response && response.ok) {
                 const data = await response.json();
                 if (data.code === 0 && data.data) {
-                const movie = data.data;
-                const rawTitle = `${movie.title} | Watch Online Free - Netflix`;
-                const rawDescription = `Watch ${movie.title} online free in HD. ${movie.description?.slice(0, 160) || 'Stream now on Netflix'}.`;
-                
-                
-                const title = rawTitle.replace(/"/g, '&quot;');
-                const description = rawDescription.replace(/"/g, '&quot;').replace(/\n/g, ' ').replace(/\r/g, '');
-                
-                const image = movie.cover || movie.thumbnail || 'https://files.catbox.moe/lhdbe0.png';
-                const url = `https://${req.get('host')}${req.originalUrl}`;
+                    const movie = data.data;
+                    const rawTitle = `${movie.title} | Watch Online Free - SLFLIX`;
+                    const rawDescription = `Watch ${movie.title} online free in HD. ${movie.description?.slice(0, 160) || 'Stream now on SLFLIX'}.`;
+                    
+                    const title = rawTitle.replace(/"/g, '&quot;');
+                    const description = rawDescription.replace(/"/g, '&quot;').replace(/\n/g, ' ').replace(/\r/g, '');
+                    
+                    const image = movie.cover || movie.thumbnail || 'https://files.catbox.moe/lhdbe0.png';
+                    const url = `https://${req.get('host')}${req.originalUrl}`;
 
-                
-                html = html.replace(/<title>.*?<\/title>/, `<title>${title}</title>`);
-                html = html.replace(/<meta name="description" content=".*?"/, `<meta name="description" content="${description}"`);
-                
-                
-                html = html.replace(/<meta property="og:title" content=".*?"/, `<meta property="og:title" content="${title}"`);
-                html = html.replace(/<meta property="og:description" content=".*?"/, `<meta property="og:description" content="${description}"`);
-                html = html.replace(/<meta property="og:image" content=".*?"/, `<meta property="og:image" content="${image}"`);
-                html = html.replace(/<meta property="og:type" content=".*?"/, `<meta property="og:type" content="video.movie"`);
-                html = html.replace(/<meta property="og:url" content=".*?"/, `<meta property="og:url" content="${url}"`);
-                
-                
-                html = html.replace(/<meta name="twitter:title" content=".*?"/, `<meta name="twitter:title" content="${title}"`);
-                html = html.replace(/<meta name="twitter:description" content=".*?"/, `<meta name="twitter:description" content="${description}"`);
-                html = html.replace(/<meta name="twitter:image" content=".*?"/, `<meta name="twitter:image" content="${image}"`);
-                
-                
-                if (html.includes('rel="canonical"')) {
-                    html = html.replace(/rel="canonical" href=".*?"/, `rel="canonical" href="${url}"`);
-                } else {
-                    html = html.replace('</head>', `<link rel="canonical" href="${url}" />\n</head>`);
-                }
+                    html = html.replace(/<title>.*?<\/title>/, `<title>${title}</title>`);
+                    html = html.replace(/<meta name="description" content=".*?"/, `<meta name="description" content="${description}"`);
+                    
+                    html = html.replace(/<meta property="og:title" content=".*?"/, `<meta property="og:title" content="${title}"`);
+                    html = html.replace(/<meta property="og:description" content=".*?"/, `<meta property="og:description" content="${description}"`);
+                    html = html.replace(/<meta property="og:image" content=".*?"/, `<meta property="og:image" content="${image}"`);
+                    html = html.replace(/<meta property="og:type" content=".*?"/, `<meta property="og:type" content="video.movie"`);
+                    html = html.replace(/<meta property="og:url" content=".*?"/, `<meta property="og:url" content="${url}"`);
+                    
+                    html = html.replace(/<meta name="twitter:title" content=".*?"/, `<meta name="twitter:title" content="${title}"`);
+                    html = html.replace(/<meta name="twitter:description" content=".*?"/, `<meta name="twitter:description" content="${description}"`);
+                    html = html.replace(/<meta name="twitter:image" content=".*?"/, `<meta name="twitter:image" content="${image}"`);
+                    
+                    if (html.includes('rel="canonical"')) {
+                        html = html.replace(/rel="canonical" href=".*?"/, `rel="canonical" href="${url}"`);
+                    } else {
+                        html = html.replace('</head>', `<link rel="canonical" href="${url}" />\n</head>`);
+                    }
                 }
             }
         } catch (e) {
@@ -401,7 +368,6 @@ async function getDynamicHtml(req, res) {
         }
     }
 
-    
     if (process.env.NODE_ENV !== 'production' && global.viteServer) {
         try {
             html = await global.viteServer.transformIndexHtml(req.originalUrl, html);
@@ -412,7 +378,6 @@ async function getDynamicHtml(req, res) {
 
     res.send(html);
 }
-
 
 app.get('/sitemap.xml', async (req, res) => {
     res.header('Content-Type', 'application/xml');
@@ -477,7 +442,6 @@ app.get('/sitemap.xml', async (req, res) => {
     res.send(sitemap);
 });
 
-
 app.use(async (req, res, next) => {
     if (req.path.startsWith('/api') || req.path.startsWith('/socket.io') || req.path.includes('.')) {
         return next();
@@ -490,7 +454,6 @@ app.use(async (req, res, next) => {
     }
 });
 
-
 app.get('/api/visitors', (req, res) => {
     res.json({
         onlineUsers: visitorData.onlineUsers,
@@ -499,7 +462,6 @@ app.get('/api/visitors', (req, res) => {
         pageViews: visitorData.pageViews
     });
 });
-
 
 app.get('/_i18n/:lang/messages.json', (req, res) => {
     const lang = req.params.lang || 'en';
@@ -512,16 +474,14 @@ app.get('/_i18n/:lang/messages.json', (req, res) => {
     }
 });
 
-
 app.get('/manifest.webmanifest', (req, res) => {
     const manifestPath = path.join(__dirname, 'public', 'manifest.webmanifest');
     if (fs.existsSync(manifestPath)) {
         res.json(JSON.parse(fs.readFileSync(manifestPath, 'utf8')));
     } else {
-        res.json({ name: 'Netflix' });
+        res.json({ name: 'SLFLIX' });
     }
 });
-
 
 app.post('/api/event', express.json(), (req, res) => {
     const { type, data } = req.body;
@@ -533,18 +493,14 @@ app.get('/api/domain', (req, res) => {
     res.json({ domain: req.get('host') || 'localhost:3001' });
 });
 
-
 app.get(/^\/admin/, (req, res) => {
     res.status(404).json({ error: 'Route not found' });
 });
 
-
-if (!process.env.VERCEL) {
-    const PORT = process.env.PORT || 3000;
-    httpServer.listen(PORT, '0.0.0.0', () => {
-        console.log(`\n🚀 Netflix Server running on http://localhost:${PORT}`);
-        console.log(`📊 Full production app ready!`);
-    });
-}
+const PORT = 3000;
+httpServer.listen(PORT, '0.0.0.0', () => {
+    console.log(`\n🚀 SLFLIX Server running on http://localhost:${PORT}`);
+    console.log(`📊 Full production app ready!`);
+});
 
 export default app;

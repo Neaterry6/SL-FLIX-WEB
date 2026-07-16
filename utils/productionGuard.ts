@@ -1,9 +1,14 @@
-
+/**
+ * Production security utilities
+ * Prevents sensitive information exposure in production builds
+ */
 
 export const isDevelopment = (import.meta as any).env?.DEV || process.env.NODE_ENV === 'development';
 export const isProduction = (import.meta as any).env?.PROD || process.env.NODE_ENV === 'production';
 
-
+/**
+ * Safe console logging - only logs in development
+ */
 export const safeConsole = {
   log: (...args: any[]) => {
     if (isDevelopment) console.log(...args);
@@ -22,7 +27,9 @@ export const safeConsole = {
   }
 };
 
-
+/**
+ * Obfuscate file paths in error messages for production
+ */
 export const sanitizeError = (error: Error | string): string => {
   if (isDevelopment) return typeof error === 'string' ? error : error.message;
   
@@ -34,7 +41,9 @@ export const sanitizeError = (error: Error | string): string => {
     .replace(/column \d+/g, 'column [redacted]');
 };
 
-
+/**
+ * Safe error boundary fallback
+ */
 export const getSafeErrorMessage = () => {
   if (isDevelopment) {
     return 'Something went wrong. Check the console for details.';

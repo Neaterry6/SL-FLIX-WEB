@@ -22,13 +22,13 @@ export const useMovieDetails = (initialMovie: MovieResult) => {
         setLoading(true);
         setError(null);
         
-        
+        // Load full details
         const fullDetails = await ApiService.getDetails(initialMovie);
         
         if (mountedRef.current) {
           setMovie(fullDetails);
           
-          
+          // Prefetch recommendations after details load
           if (fullDetails.recommendations?.length === 0) {
             prefetchTimeoutRef.current = setTimeout(() => {
               ApiService.getDetails(fullDetails).catch(() => {});
@@ -47,7 +47,7 @@ export const useMovieDetails = (initialMovie: MovieResult) => {
       }
     };
 
-    
+    // Start loading immediately but don't block UI
     loadMovieDetails();
 
     return () => {
@@ -58,7 +58,7 @@ export const useMovieDetails = (initialMovie: MovieResult) => {
     };
   }, [initialMovie.subjectId, initialMovie.detailPath]);
 
-  
+  // Prefetch sources when user might click play
   const prefetchSources = () => {
     if (movie.subjectId && movie.hasResource !== false) {
       ApiService.getSources(
@@ -68,7 +68,7 @@ export const useMovieDetails = (initialMovie: MovieResult) => {
         1,
         movie.detailPath
       ).catch(() => {
-        
+        // Silently fail prefetch
       });
     }
   };

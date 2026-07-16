@@ -16,7 +16,7 @@ const VideoPlayerBulkModalWrapper: React.FC<VideoPlayerBulkModalWrapperProps> = 
 
   const handleDownload = (urls: string[]) => {
     urls.forEach(url => {
-      
+      // Generate download URLs - use existing /api/sources endpoint
       window.open(url, '_blank');
     });
   };

@@ -29,7 +29,7 @@ const BulkDownloadModal: React.FC<BulkDownloadModalProps> = ({
   const { movie, loading, error } = useMovieDetails(dummyMovie);
   const [selectedUrls, setSelectedUrls] = useState<string[]>([]);
   const [selectAll, setSelectAll] = useState(false);
-  const [downloadType, setDownloadType] = useState<'zip' | 'folder'>('zip'); 
+  const [downloadType, setDownloadType] = useState<'zip' | 'folder'>('zip'); // Ask user
 
   const [downloadSubtitles, setDownloadSubtitles] = useState(true);
 
@@ -102,7 +102,7 @@ const BulkDownloadModal: React.FC<BulkDownloadModalProps> = ({
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border border-slate-700 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
-        {}
+        {/* Header */}
         <div className="sticky top-0 bg-slate-900/50 backdrop-blur border-b border-slate-700 p-6 rounded-t-2xl">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-gradient-to-r from-emerald-500 to-teal-600 rounded-lg flex items-center justify-center shadow-lg">
@@ -126,7 +126,7 @@ const BulkDownloadModal: React.FC<BulkDownloadModalProps> = ({
           </div>
         </div>
 
-        {}
+        {/* Download Type */}
         <div className="p-6 border-b border-slate-700">
           <div className="flex flex-col gap-4">
             <div className="flex gap-4">
@@ -165,7 +165,7 @@ const BulkDownloadModal: React.FC<BulkDownloadModalProps> = ({
           </div>
         </div>
 
-        {}
+        {/* Episodes List */}
         <div className="p-6">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">

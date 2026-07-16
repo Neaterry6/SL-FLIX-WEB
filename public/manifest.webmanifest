@@ -1,14 +1,14 @@
 {
-    "name": "Sl-flix",
-    "short_name": "Sl-flix",
+    "name": "SLFLIX",
+    "short_name": "SLFLIX",
     "start_url": "/",
     "display": "standalone",
     "background_color": "#101114",
     "lang": "en",
     "scope": "/",
     "id": "slflix",
-    "description": "Sl-flix - Stream Movies & TV Shows Free",
-    "theme_color": "#E50914",
+    "description": "SLFLIX - Stream Movies & TV Shows Free",
+    "theme_color": "#00e5ff",
     "icons": [
         {
             "src": "/icons/icon-152x152.png",

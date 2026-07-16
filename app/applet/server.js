@@ -8,8 +8,6 @@ import dotenv from 'dotenv';
 import https from 'https';
 import { URL } from 'url';
 import compression from 'compression';
-import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
 
 dotenv.config();
 
@@ -25,34 +23,7 @@ const io = new Server(httpServer, {
     }
 });
 
-app.use(helmet({
-    contentSecurityPolicy: {
-        directives: {
-            defaultSrc: ["'self'"],
-            scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://cdn.tailwindcss.com"],
-            styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://cdnjs.cloudflare.com"],
-            imgSrc: ["'self'", "data:", "https:", "blob:", "https://files.catbox.moe"],
-            mediaSrc: ["'self'", "https:", "blob:"],
-            connectSrc: ["'self'", "https:", "wss:"],
-            fontSrc: ["'self'", "data:", "https:", "https://fonts.gstatic.com"],
-            frameSrc: ["'self'", "https://www.youtube.com", "https://player.vimeo.com"],
-            objectSrc: ["'none'"],
-            baseUri: ["'self'"],
-            upgradeInsecureRequests: []
-        }
-    },
-    crossOriginEmbedderPolicy: false
-}));
-
-const apiLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, 
-    max: 1000, 
-    message: 'Too many requests from this IP, please try again after 15 minutes'
-});
-
-app.use('/api', apiLimiter);
-
-
+// Visitor data storage (public stats only)
 const visitorData = {
     totalVisitors: 0,
     todayVisitors: 0,
@@ -63,7 +34,7 @@ const visitorData = {
     pageViews: {}
 };
 
-
+// IP Geolocation (simple offline implementation)
 const getRegionFromIP = (ip) => {
     ip = ip.split(':').pop() || ip;
     
@@ -91,7 +62,7 @@ const getRegionFromIP = (ip) => {
     return 'Unknown';
 };
 
-
+// Track visitor
 const trackVisitor = (ip, page = '/') => {
     const today = new Date().toDateString();
     const cleanIP = ip.split(':').pop() || ip;
@@ -123,7 +94,7 @@ const trackVisitor = (ip, page = '/') => {
     
     visitorData.pageViews[page] = (visitorData.pageViews[page] || 0) + 1;
     
-    
+    // Cleanup old visitors
     const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
     for (const [key, value] of visitorData.ips) {
         if (value.timestamp < oneDayAgo) {
@@ -132,7 +103,7 @@ const trackVisitor = (ip, page = '/') => {
     }
 };
 
-
+// Socket.io for real-time visitor count (public)
 io.on('connection', (socket) => {
     visitorData.onlineUsers++;
     io.emit('visitorUpdate', {
@@ -151,14 +122,14 @@ io.on('connection', (socket) => {
     });
 });
 
-
+// Middleware to track all requests
 app.use((req, res, next) => {
     const clientIP = req.ip || req.connection?.remoteAddress || '127.0.0.1';
     trackVisitor(clientIP, req.path);
     next();
 });
 
-
+// Gzip compression for static assets
 app.use(compression({
     level: 6,
     threshold: 1024,
@@ -168,7 +139,7 @@ app.use(compression({
     }
 }));
 
-
+// Security: Block source files only (.ts/.tsx/.map), allow production assets
 app.use((req, res, next) => {
     if (req.url.startsWith('/assets/') || req.path === '/index.html') {
         return next();
@@ -180,7 +151,24 @@ app.use((req, res, next) => {
     next();
 });
 
-// Remove old CSP middleware fully since Helmet handles it
+// CSP headers for production
+app.use((req, res, next) => {
+    res.setHeader('Content-Security-Policy', 
+        "default-src 'self'; " +
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com; " +
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; " +
+        "img-src 'self' data: https: blob: https://files.catbox.moe; " +
+        "media-src 'self' https: blob:; " +
+        "connect-src 'self' https: wss:; " +
+        "font-src 'self' data: https: https://fonts.gstatic.com; " +
+        "frame-src 'self' https://www.youtube.com https://player.vimeo.com; " +
+        "object-src 'none'; " +
+        "base-uri 'self';"
+    );
+    next();
+});
+
+// API Proxy Functions
 function proxyRequest(req, res, targetHost, targetPath, extraHeaders = {}) {
     if (res.headersSent) return;
     
@@ -196,7 +184,7 @@ function proxyRequest(req, res, targetHost, targetPath, extraHeaders = {}) {
             host: targetHost,
             ...extraHeaders
         },
-        timeout: 0  
+        timeout: 0  // No timeout for streaming
 
     };
 
@@ -231,7 +219,7 @@ function proxyRequest(req, res, targetHost, targetPath, extraHeaders = {}) {
     }
 }
 
-
+// API Proxies
 app.use('/api-metadata', (req, res) => {
     const pathWithoutPrefix = req.url.startsWith('/') ? req.url : '/' + req.url;
     proxyRequest(
@@ -262,23 +250,13 @@ app.use('/api-cineverse', (req, res) => {
     );
 });
 
-app.use('/api-omegatech', (req, res) => {
-    const pathWithoutPrefix = req.url.startsWith('/') ? req.url : '/' + req.url;
-    proxyRequest(
-        req, res, 
-        'omegatech-api.dixonomega.tech', 
-        pathWithoutPrefix,
-        { 'Origin': 'https://omegatech-api.dixonomega.tech', 'Referer': 'https://omegatech-api.dixonomega.tech/' }
-    );
-});
-
 app.use('/api-stream', (req, res) => {
-    
+    // Legacy giftedtech proxy - retry logic
     let retries = 3;
     const originalReq = req;
     const tryProxy = async () => {
         try {
-            
+            // Extract everything after /api-stream/
             let pathAfterPrefix = req.url.substring(12);
             try {
                 pathAfterPrefix = decodeURIComponent(pathAfterPrefix);
@@ -309,13 +287,13 @@ app.use('/api-stream', (req, res) => {
     tryProxy();
 });
     
-    
+    // Decode the URL (it might be encoded)
 
     
     console.log(`[STREAM PROXY] Original path: ${req.url}`);
     console.log(`[STREAM PROXY] Path after prefix: ${pathAfterPrefix}`);
     
-    
+    // Parse the target URL to get host and path
     let targetHost = 'movieapi.giftedtech.co.ke';
     let targetPath = '/api/v2/stream';
     
@@ -325,7 +303,7 @@ app.use('/api-stream', (req, res) => {
         targetPath = urlObj.pathname + urlObj.search;
     } catch (e) {
         console.error('[STREAM PROXY] Invalid URL:', pathAfterPrefix);
-        
+        // If URL parsing fails, assume it's already just the path we want to proxy to
         targetPath = pathAfterPrefix;
     }
     
@@ -341,7 +319,7 @@ app.use('/api-stream', (req, res) => {
 
 console.log('[PROXY] API proxies ready: metadata/player/cineverse/stream');
 
-
+// Production static serving from dist/
 app.use(express.static(path.join(__dirname, '../dist'), {
     maxAge: '1y',
     etag: true,
@@ -360,7 +338,7 @@ app.use(express.static(path.join(__dirname, '../dist'), {
 });
 
 
-
+// Public visitor stats API
 app.get('/api/visitors', (req, res) => {
     res.json({
         onlineUsers: visitorData.onlineUsers,
@@ -370,7 +348,7 @@ app.get('/api/visitors', (req, res) => {
     });
 });
 
-
+// i18n fallback
 app.get('/_i18n/:lang/messages.json', (req, res) => {
     const lang = req.params.lang || 'en';
     const messagesPath = path.join(__dirname, 'public/_i18n', lang, 'messages.json');
@@ -382,17 +360,17 @@ app.get('/_i18n/:lang/messages.json', (req, res) => {
     }
 });
 
-
+// Manifest fallback
 app.get('/manifest.webmanifest', (req, res) => {
     const manifestPath = path.join(__dirname, 'public', 'manifest.webmanifest');
     if (fs.existsSync(manifestPath)) {
         res.json(require(manifestPath));
     } else {
-        res.json({ name: 'Sl-flix' });
+        res.json({ name: 'SLFLIX' });
     }
 });
 
-
+// Events API (public)
 app.post('/api/event', express.json(), (req, res) => {
     const { type, data } = req.body;
     io.emit('event', { type, data, timestamp: Date.now() });
@@ -403,15 +381,15 @@ app.get('/api/domain', (req, res) => {
     res.json({ domain: req.get('host') || 'localhost:3001' });
 });
 
-
+// Admin routes return 404 (removed)
 app.get(/^\/admin/, (req, res) => {
     res.status(404).json({ error: 'Route not found' });
 });
 
-
+// Start production server
 const PORT = 3000;
 httpServer.listen(PORT, "0.0.0.0", () => {
-    console.log(`\n🚀 Slflix Server running on http://localhost:${PORT}`);
+    console.log(`\n🚀 SLFLIX Server running on http://localhost:${PORT}`);
     console.log(`📊 Full production app ready!`);
 });
 
