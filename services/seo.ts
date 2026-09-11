@@ -1,6 +1,6 @@
 import { MovieResult } from '../types';
 const SITE_NAME = 'SL-FLIX';
-const SITE_URL = 'https://sl-flix.dixonomega.tech';
+const SITE_URL = 'https://devomega.my.id/';
 const DEFAULT_IMAGE = '/icons/slflix.png';
 const DEFAULT_DESCRIPTION = 'Watch Movies, TV Series & Anime Online Free in HD. Stream latest films and shows without registration.';
 export const updateMetaTags = (movie: MovieResult | null, isHome: boolean = false) => {
