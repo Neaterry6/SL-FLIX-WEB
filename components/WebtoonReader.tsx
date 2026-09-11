@@ -3,20 +3,17 @@ import { ApiService } from '../services/api';
 import { WebtoonRead } from '../types';
 import { ArrowLeft, Maximize, Minimize, ChevronUp, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-
 interface WebtoonReaderProps {
   url: string;
   title: string;
   onBack: () => void;
 }
-
 const WebtoonReader: React.FC<WebtoonReaderProps> = ({ url, title, onBack }) => {
   const [data, setData] = useState<WebtoonRead | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showControls, setShowControls] = useState(true);
   const [isFullWidth, setIsFullWidth] = useState(false);
-
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
@@ -30,14 +27,10 @@ const WebtoonReader: React.FC<WebtoonReaderProps> = ({ url, title, onBack }) => 
       }
     };
     fetchData();
-    
-    // Auto-hide controls after 3 seconds
     const timer = setTimeout(() => setShowControls(false), 3000);
     return () => clearTimeout(timer);
   }, [url]);
-
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
-
   if (loading) {
     return (
       <div className="fixed inset-0 z-[300] bg-black flex flex-col items-center justify-center">
@@ -46,7 +39,6 @@ const WebtoonReader: React.FC<WebtoonReaderProps> = ({ url, title, onBack }) => 
       </div>
     );
   }
-
   if (error) {
     return (
       <div className="fixed inset-0 z-[300] bg-black flex flex-col items-center justify-center p-6 text-center">
@@ -61,16 +53,14 @@ const WebtoonReader: React.FC<WebtoonReaderProps> = ({ url, title, onBack }) => 
       </div>
     );
   }
-
   return (
     <div 
       className="fixed inset-0 z-[300] bg-[#050505] overflow-y-auto scrollbar-hide select-none"
       onMouseMove={() => {
         setShowControls(true);
-        // Reset auto-hide
       }}
     >
-      {/* Top Bar */}
+      {}
       <AnimatePresence>
         {showControls && (
           <motion.div 
@@ -90,7 +80,6 @@ const WebtoonReader: React.FC<WebtoonReaderProps> = ({ url, title, onBack }) => 
                 {title}
               </h2>
             </div>
-            
             <div className="flex items-center gap-2">
               <button 
                 onClick={() => setIsFullWidth(!isFullWidth)}
@@ -103,8 +92,7 @@ const WebtoonReader: React.FC<WebtoonReaderProps> = ({ url, title, onBack }) => 
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* Reader Content */}
+      {}
       <div className={`mx-auto transition-all duration-500 ${isFullWidth ? 'w-full' : 'max-w-3xl border-x border-white/5'}`}>
         {data?.images.map((img, idx) => (
           <div key={idx} className="relative bg-black/20" style={{ minHeight: '200px' }}>
@@ -119,8 +107,7 @@ const WebtoonReader: React.FC<WebtoonReaderProps> = ({ url, title, onBack }) => 
             />
           </div>
         ))}
-        
-        {/* End of Chapter */}
+        {}
         <div className="py-20 text-center bg-black/40">
             <div className="w-20 h-[2px] bg-primary/30 mx-auto mb-8"></div>
             <h3 className="text-white/40 font-black text-xl tracking-widest uppercase">Chapter Completed</h3>
@@ -133,8 +120,7 @@ const WebtoonReader: React.FC<WebtoonReaderProps> = ({ url, title, onBack }) => 
             </button>
         </div>
       </div>
-
-      {/* Bottom Floating Controls */}
+      {}
       <AnimatePresence>
         {showControls && (
           <motion.div 
@@ -161,5 +147,4 @@ const WebtoonReader: React.FC<WebtoonReaderProps> = ({ url, title, onBack }) => 
     </div>
   );
 };
-
 export default WebtoonReader;

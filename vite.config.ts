@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import terser from '@rollup/plugin-terser';
+import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(({ mode }) => {
   const isProduction = mode === 'production';
@@ -8,8 +9,97 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [
       react(),
-      // Only enable source maps in development
-      ...(isProduction ? [] : [])
+      VitePWA({
+        registerType: 'autoUpdate',
+        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icons/*', 'manifest.webmanifest'],
+        manifest: {
+          id: 'slflix',
+          name: 'SLFLIX PRO',
+          short_name: 'SLFLIX',
+          description: 'SLFLIX PRO - Free Movies, TV Shows & Live TV Streaming',
+          theme_color: '#0a0a0f',
+          background_color: '#0a0a0f',
+          display: 'standalone',
+          start_url: '/',
+          scope: '/',
+          icons: [
+            {
+              src: '/icons/icon-192x192.png',
+              sizes: '192x192',
+              type: 'image/png',
+              purpose: 'any'
+            },
+            {
+              src: '/icons/icon-512x512.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'any'
+            },
+            {
+              src: '/icons/slflix.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'maskable'
+            }
+          ]
+        },
+        workbox: {
+          maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+          runtimeCaching: [
+            {
+              urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'google-fonts-cache',
+                expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 },
+                cacheableResponse: { statuses: [0, 200] }
+              }
+            },
+            {
+              urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'gstatic-fonts-cache',
+                expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 },
+                cacheableResponse: { statuses: [0, 200] }
+              }
+            },
+            {
+              urlPattern: /\/api\/(tv|home|movies|series|search|metadata|cineverse|omegatech).*/i,
+              handler: 'NetworkFirst',
+              options: {
+                cacheName: 'api-metadata-cache',
+                expiration: {
+                  maxEntries: 150,
+                  maxAgeSeconds: 60 * 60 * 24 * 7
+                },
+                cacheableResponse: {
+                  statuses: [0, 200]
+                }
+              }
+            },
+            {
+              urlPattern: /\/api\/tv\/img.*/i,
+              handler: 'StaleWhileRevalidate',
+              options: {
+                cacheName: 'tv-images-cache',
+                expiration: {
+                  maxEntries: 200,
+                  maxAgeSeconds: 60 * 60 * 24 * 14
+                },
+                cacheableResponse: {
+                  statuses: [0, 200]
+                }
+              }
+            }
+          ]
+        },
+        devOptions: {
+          enabled: true,
+          type: 'module'
+        }
+      })
     ],
     build: {
       outDir: 'dist',
@@ -61,7 +151,7 @@ export default defineConfig(({ mode }) => {
       host: true,
       proxy: {
         '/api-omegatech': {
-          target: 'https://omegatech-api.dixonomega.tech',
+          target: 'https://api.omegatech.app',
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api-omegatech/, ''),
           timeout: 15000
@@ -105,37 +195,6 @@ export default defineConfig(({ mode }) => {
             'Referer': 'https://movieapi.giftedtech.co.ke/'
           },
           timeout: 15000
-        },
-        // Proxy admin and API routes to Express backend
-        '/admin': {
-          target: 'http://localhost:3000',
-          changeOrigin: true,
-          timeout: 10000
-        },
-        '/api/visitors': {
-          target: 'http://localhost:3000',
-          changeOrigin: true,
-          timeout: 10000
-        },
-        '/api/domain': {
-          target: 'http://localhost:3000',
-          changeOrigin: true,
-          timeout: 10000
-        },
-        '/api/event': {
-          target: 'http://localhost:3000',
-          changeOrigin: true,
-          timeout: 10000
-        },
-        '/_i18n': {
-          target: 'http://localhost:3000',
-          changeOrigin: true,
-          timeout: 10000
-        },
-        '/manifest.webmanifest': {
-          target: 'http://localhost:3000',
-          changeOrigin: true,
-          timeout: 10000
         }
       }
     },
@@ -145,7 +204,7 @@ export default defineConfig(({ mode }) => {
       host: true,
       proxy: {
         '/api-omegatech': {
-          target: 'https://omegatech-api.dixonomega.tech',
+          target: 'https://api.omegatech.app',
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api-omegatech/, ''),
           timeout: 15000
@@ -189,36 +248,6 @@ export default defineConfig(({ mode }) => {
             'Referer': 'https://movieapi.giftedtech.co.ke/'
           },
           timeout: 15000
-        },
-        '/admin': {
-          target: 'http://localhost:3000',
-          changeOrigin: true,
-          timeout: 10000
-        },
-        '/api/visitors': {
-          target: 'http://localhost:3000',
-          changeOrigin: true,
-          timeout: 10000
-        },
-        '/api/domain': {
-          target: 'http://localhost:3000',
-          changeOrigin: true,
-          timeout: 10000
-        },
-        '/api/event': {
-          target: 'http://localhost:3000',
-          changeOrigin: true,
-          timeout: 10000
-        },
-        '/_i18n': {
-          target: 'http://localhost:3000',
-          changeOrigin: true,
-          timeout: 10000
-        },
-        '/manifest.webmanifest': {
-          target: 'http://localhost:3000',
-          changeOrigin: true,
-          timeout: 10000
         }
       }
     }

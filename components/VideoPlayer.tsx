@@ -5,7 +5,7 @@ import SubtitleManager, { detectUserLanguage, findBestSubtitle } from './Subtitl
 import SeasonSelector from './SeasonSelector';
 import BulkDownloadModal from './BulkDownloadModal';
 import VideoPlayerBulkModalWrapper from './VideoPlayerBulkModalWrapper';
-
+import { RetroTvError } from './RetroTvError';
 interface VideoPlayerProps {
   title: string;
   subTitle?: string;
@@ -33,7 +33,6 @@ interface VideoPlayerProps {
   movieId?: string;
   seasonNumber?: number;
 }
-
 const formatTime = (seconds: number): string => {
   if (isNaN(seconds) || seconds === Infinity || seconds < 0) return "00:00";
   const h = Math.floor(seconds / 3600);
@@ -42,19 +41,15 @@ const formatTime = (seconds: number): string => {
   if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   return `${m}:${s.toString().padStart(2, '0')}`;
 };
-
 const convertSrtToVtt = (srtContent: string): string => {
   if (srtContent.trim().startsWith('WEBVTT')) {
     return srtContent;
   }
-  
   let vtt = 'WEBVTT\n\n';
   const lines = srtContent.split('\n');
-  
   for (let i = 0; i < lines.length; i++) {
     let line = lines[i].trim();
     if (!line) continue;
-    
     if (line.includes('-->')) {
       line = line.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/, '$1.$2');
       line = line.replace(/,/g, '.');
@@ -72,17 +67,13 @@ const convertSrtToVtt = (srtContent: string): string => {
       vtt += line + '\n';
     }
   }
-  
   return vtt;
 };
-
 const vttBlobCache = new Map<string, string>();
-
 const convertSrtUrlToVttBlob = async (srtUrl: string): Promise<string> => {
   if (vttBlobCache.has(srtUrl)) {
     return vttBlobCache.get(srtUrl)!;
   }
-  
   try {
     let response;
     try {
@@ -95,35 +86,28 @@ const convertSrtUrlToVttBlob = async (srtUrl: string): Promise<string> => {
     } catch (e) {
       response = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(srtUrl)}`);
     }
-    
     if (!response || !response.ok) {
       return srtUrl;
     }
-    
     const srtContent = await response.text();
-    
     if (!srtContent.includes('-->')) {
       return srtUrl;
     }
-    
     const vttContent = convertSrtToVtt(srtContent);
     const blob = new Blob([vttContent], { type: 'text/vtt' });
     const blobUrl = URL.createObjectURL(blob);
-    
     vttBlobCache.set(srtUrl, blobUrl);
     return blobUrl;
   } catch (error) {
     return srtUrl;
   }
 };
-
 const getYoutubeId = (url: string): string | null => {
   if (!url) return null;
   const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
   const match = url.match(regExp);
   return (match && match[2].length === 11) ? match[2] : null;
 };
-
 const FastStreamLoader: React.FC<{ buffered?: number }> = ({ buffered }) => {
   return (
     <div className="flex flex-col items-center p-8">
@@ -139,7 +123,6 @@ const FastStreamLoader: React.FC<{ buffered?: number }> = ({ buffered }) => {
           </div>
         </div>
       </div>
-      
       <div className="w-80 mt-8 mx-auto">
         <div className="relative h-3 bg-white/10 rounded-2xl overflow-hidden shadow-lg">
           <div className="absolute inset-0 bg-gradient-to-r from-gray-800/50 to-white/20 rounded-2xl"></div>
@@ -157,7 +140,6 @@ const FastStreamLoader: React.FC<{ buffered?: number }> = ({ buffered }) => {
           )}
         </div>
       </div>
-
       <div className="mt-4 text-center">
         <div className="flex items-center justify-center gap-2 mb-1">
           <div className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse-fast"></div>
@@ -174,7 +156,6 @@ const FastStreamLoader: React.FC<{ buffered?: number }> = ({ buffered }) => {
     </div>
   );
 };
-
 const TrailerPlayer: React.FC<{
   title: string;
   sources: VideoSource[];
@@ -182,7 +163,6 @@ const TrailerPlayer: React.FC<{
   coverImage?: string;
 }> = ({ title, sources, onClose, coverImage }) => {
   const trailerUrl = sources[0]?.stream || sources[0]?.direct || "";
-  
   return (
     <div className="fixed inset-0 z-[3000] flex items-center justify-center animate-fade-in">
       {coverImage && (
@@ -192,19 +172,17 @@ const TrailerPlayer: React.FC<{
         />
       )}
       <div className="absolute inset-0 bg-black/70 backdrop-blur-md"></div>
-      
       <button 
         onClick={onClose} 
         className="absolute top-4 right-4 z-50 w-10 h-10 flex items-center justify-center bg-white/10 hover:bg-white/20 text-white rounded-full transition-colors"
       >
         <i className="fa-solid fa-times"></i>
       </button>
-      
       <div className="relative z-10 w-full max-w-4xl mx-4">
         <div className="aspect-video bg-black rounded-xl overflow-hidden shadow-2xl">
           {getYoutubeId(trailerUrl) ? (
             <iframe 
-              src={`https://www.youtube.com/embed/${getYoutubeId(trailerUrl)}?autoplay=1&rel=0`} 
+              src={`https://www.youtube.com/embed/${getYoutubeId(trailerUrl)}?rel=0`} 
               className="w-full h-full" 
               allowFullScreen 
               title={title} 
@@ -213,7 +191,6 @@ const TrailerPlayer: React.FC<{
             <video 
               src={trailerUrl} 
               controls 
-              autoPlay 
               className="w-full h-full object-contain" 
             />
           )}
@@ -225,7 +202,6 @@ const TrailerPlayer: React.FC<{
     </div>
   );
 };
-
 const StreamingPlayer: React.FC<VideoPlayerProps> = ({ 
   title, 
   subTitle, 
@@ -239,6 +215,7 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
   nextEpisode, 
   onPlayNext, 
   isLive = false,
+  subjectId,
   movie,
   currentSeason = 1,
   currentEpisode = 1,
@@ -250,7 +227,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
   const hlsRef = useRef<Hls | null>(null);
   const progressRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(initialTime);
   const [duration, setDuration] = useState(0);
@@ -258,7 +234,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
   const [buffered, setBuffered] = useState(0);
   const [showControls, setShowControls] = useState(true);
   const [locked, setLocked] = useState(false);
-  
   const [showSettings, setShowSettings] = useState(false);
   const [showSourceSelect, setShowSourceSelect] = useState(false);
   const [showSeasonSelector, setShowSeasonSelector] = useState(false);
@@ -276,9 +251,9 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
   const [isMuted, setIsMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [videoError, setVideoError] = useState<string | null>(null);
+  const [pipError, setPipError] = useState<string | null>(null);
   const [convertedSubUrls, setConvertedSubUrls] = useState<Record<number, string>>({});
   const [isConvertingSubs, setIsConvertingSubs] = useState(false);
-  
   const [networkState, setNetworkState] = useState<'good' | 'unstable' | 'offline'>('good');
   const [showNextCountdown, setShowNextCountdown] = useState(false);
   const [countdown, setCountdown] = useState(5);
@@ -286,14 +261,29 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
   const [autoPlayNext, setAutoPlayNext] = useState(() => {
     return localStorage.getItem('slflix_autoplay_next') !== 'false';
   });
+  const [needsUserGesture, setNeedsUserGesture] = useState(false);
   const hasTriggeredAutoPlayRef = useRef(false);
+  const lastProgressUpdateRef = useRef<number>(0);
+  const savedTimeRef = useRef<number>(initialTime || 0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragTime, setDragTime] = useState(0);
+  const wantsToPlayRef = useRef(true);
 
   const attemptPlay = useCallback(() => { 
     const video = videoRef.current; 
-    if (!video) return; 
-    video.play().catch(() => setPlaying(false)); 
+    if (!video || !wantsToPlayRef.current) return; 
+    const playPromise = video.play();
+    if (playPromise !== undefined) {
+      playPromise.catch((error) => {
+        if (error.name === 'NotAllowedError') {
+          setNeedsUserGesture(true);
+          setPlaying(false);
+        } else {
+          setPlaying(false);
+        }
+      });
+    }
   }, []);
-
   useEffect(() => {
     const handleOffline = () => setNetworkState('offline');
     const handleOnline = () => {
@@ -310,7 +300,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
       window.removeEventListener('online', handleOnline);
     };
   }, [playing, attemptPlay]);
-
   useEffect(() => {
     let timer: NodeJS.Timeout;
     if (showNextCountdown && countdown > 0) {
@@ -321,10 +310,8 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
     }
     return () => clearTimeout(timer);
   }, [showNextCountdown, countdown, onPlayNext]);
-
   useEffect(() => {
     if (subtitles.length === 0 || activeSubtitle === -1) return;
-    
     const convertActiveSubtitle = async () => {
       const sub = subtitles[activeSubtitle];
       if (sub && sub.url && !convertedSubUrls[activeSubtitle]) {
@@ -340,14 +327,11 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
         setIsConvertingSubs(false);
       }
     };
-    
     convertActiveSubtitle();
   }, [subtitles, activeSubtitle, convertedSubUrls]);
-
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (minimized || locked) return;
-      
       switch(e.key) {
         case ' ':
         case 'k':
@@ -380,11 +364,9 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
           break;
       }
     };
-    
     const handleFullscreenChange = () => {
       setIsFullscreen(!!document.fullscreenElement);
     };
-    
     window.addEventListener('keydown', handleKeyDown);
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => {
@@ -392,7 +374,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
     };
   }, [playing, minimized, locked, showSettings, showSourceSelect, showSeasonSelector]);
-
   useEffect(() => {
     if (subtitles.length > 0 && activeSubtitle === -1) {
       const bestSubtitle = findBestSubtitle(subtitles);
@@ -401,7 +382,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
       }
     }
   }, [subtitles]);
-
   const toggleFullscreen = useCallback(() => {
     if (locked) return;
     if (!document.fullscreenElement && containerRef.current) {
@@ -410,7 +390,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
       document.exitFullscreen().catch(() => {});
     }
   }, [locked]);
-
   const updateBuffered = useCallback(() => {
     const video = videoRef.current;
     if (video && video.buffered.length > 0) {
@@ -419,7 +398,71 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
     }
   }, []);
 
-  const loadSource = useCallback((source: VideoSource, sourceIndex: number) => {
+  const initHls = useCallback(() => {
+    if (!hlsRef.current && Hls.isSupported()) {
+      const hls = new Hls({
+        capLevelToPlayerSize: true,
+        autoStartLoad: true,
+        debug: false,
+        maxBufferLength: 60,
+        maxMaxBufferLength: 300,
+        maxBufferSize: 100 * 1024 * 1024,
+        backBufferLength: 90,
+        enableWorker: true,
+        startLevel: -1,
+        fragLoadingMaxRetry: 10,
+        manifestLoadingMaxRetry: 10,
+        levelLoadingMaxRetry: 10
+      });
+      hlsRef.current = hls;
+
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        setIsBuffering(false);
+        const video = videoRef.current;
+        if (video) {
+          if (savedTimeRef.current > 0) {
+            video.currentTime = savedTimeRef.current;
+          }
+          video.playbackRate = playbackSpeed;
+          if (wantsToPlayRef.current) attemptPlay();
+        }
+      });
+      hls.on(Hls.Events.FRAG_LOADED, () => {
+        setIsBuffering(false);
+        updateBuffered();
+      });
+      hls.on(Hls.Events.ERROR, (_, data) => { 
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+          if (navigator.onLine) {
+            setNetworkState('unstable');
+            setTimeout(() => setNetworkState(prev => prev === 'unstable' ? 'good' : prev), 5000);
+          }
+          if (data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR || 
+              data.details === Hls.ErrorDetails.LEVEL_LOAD_ERROR ||
+              data.details === Hls.ErrorDetails.FRAG_LOAD_ERROR) {
+            hls.startLoad();
+          }
+        }
+        if (data.fatal) {
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            hls.startLoad();
+          } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            hls.recoverMediaError();
+          } else {
+            setVideoError('Fatal playback error. Please try another source.');
+          }
+        }
+      });
+    }
+    
+    const hls = hlsRef.current;
+    if (hls && videoRef.current && hls.media !== videoRef.current) {
+       hls.attachMedia(videoRef.current);
+    }
+    return hls;
+  }, [playbackSpeed, attemptPlay, updateBuffered]);
+
+  const loadSource = useCallback((source: VideoSource, sourceIndex: number, startTimeOverride?: number) => {
     const video = videoRef.current;
     if (!video) return;
     
@@ -427,109 +470,86 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
     setVideoError(null);
     setActiveSourceIndex(sourceIndex);
     
+    if (startTimeOverride !== undefined) {
+      savedTimeRef.current = startTimeOverride;
+      wantsToPlayRef.current = true; // force playback on quality switch
+    }
+    
     if (source.quality) {
       const qStr = String(source.quality);
       setPreferredQuality(qStr);
       localStorage.setItem('slflix_preferred_quality', qStr);
     }
     
-    if (hlsRef.current) { 
-      hlsRef.current.destroy(); 
-      hlsRef.current = null; 
-    }
-    
     const url = source.stream || source.direct || source.download;
     if (!url) return;
-
+    
     const isHlsStream = source.type === 'hls' || url.includes('.m3u8');
     
     if (isHlsStream && video.canPlayType('application/vnd.apple.mpegurl')) {
+      if (hlsRef.current) {
+        hlsRef.current.detachMedia();
+      }
+      video.onloadedmetadata = () => {
+        if (savedTimeRef.current > 0) video.currentTime = savedTimeRef.current;
+        video.playbackRate = playbackSpeed;
+        if (wantsToPlayRef.current) attemptPlay();
+      };
       video.src = url;
     } else if (Hls.isSupported() && isHlsStream) {
-      const hls = new Hls({
-        capLevelToPlayerSize: true,
-        autoStartLoad: true,
-        debug: false
-      });
-      
-      hlsRef.current = hls;
-      hls.loadSource(url);
-      hls.attachMedia(video);
-      
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        setIsBuffering(false);
-        if (initialTime > 0) video.currentTime = initialTime;
-        video.playbackRate = playbackSpeed;
-        attemptPlay();
-      });
-      
-      hls.on(Hls.Events.FRAG_LOADED, () => {
-        setIsBuffering(false);
-        updateBuffered();
-      });
-      
-      hls.on(Hls.Events.ERROR, (_, data) => { 
-        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-          if (navigator.onLine) {
-            setNetworkState('unstable');
-            setTimeout(() => setNetworkState(prev => prev === 'unstable' ? 'good' : prev), 5000);
-          }
-          
-          if (data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR || 
-              data.details === Hls.ErrorDetails.LEVEL_LOAD_ERROR ||
-              data.details === Hls.ErrorDetails.FRAG_LOAD_ERROR) {
-            hls.startLoad();
-          }
+      const hls = initHls();
+      if (hls) {
+        if (video.src && !video.src.startsWith('blob:')) {
+          video.removeAttribute('src');
+          video.load();
         }
-        
-        if (data.fatal) {
-          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-            hls.startLoad();
-          } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-            hls.recoverMediaError();
-          } else {
-            hls.destroy();
-            setVideoError('Fatal playback error. Please try another source.');
-          }
-        }
-      });
-      
-      hls.on(Hls.Events.LEVEL_SWITCHED, (_, data) => {
-      });
+        hls.loadSource(url);
+        hls.startLoad();
+      }
     } else {
-      video.src = url;
-      
-      video.onloadstart = () => {
-        setIsBuffering(true);
+      if (hlsRef.current) {
+        hlsRef.current.detachMedia();
+      }
+      video.onloadedmetadata = () => {
+        if (savedTimeRef.current > 0) video.currentTime = savedTimeRef.current;
+        video.playbackRate = playbackSpeed;
+        updateBuffered();
+        if (wantsToPlayRef.current) attemptPlay();
       };
-      
-      video.oncanplay = () => { 
-        setIsBuffering(false); 
-        attemptPlay(); 
-      };
-      
-      video.onplaying = () => {
-        setIsBuffering(false);
-        setPlaying(true);
-      };
-      
-      video.onwaiting = () => {
-        setIsBuffering(true);
-      };
-      
-      video.onerror = (e) => {
+      video.onerror = () => {
         setVideoError('Failed to load video. Please try another source.');
         setIsBuffering(false);
       };
-      
-      if (initialTime > 0) video.currentTime = initialTime;
-      video.playbackRate = playbackSpeed;
-      video.onprogress = () => updateBuffered();
+      video.src = url;
     }
-  }, [initialTime, playbackSpeed, subtitles, attemptPlay, updateBuffered]);
+  }, [playbackSpeed, attemptPlay, updateBuffered, initHls]);
 
+  const sourcesStr = JSON.stringify(sources);
   useEffect(() => { 
     hasTriggeredAutoPlayRef.current = false;
+
+    // Auto-resume lookup
+    if (subjectId && !isLive) {
+      const key = `slflix_progress_${subjectId}`;
+      const data = localStorage.getItem(key);
+      if (data) {
+        try {
+          const parsed = JSON.parse(data);
+          const epKey = `S${currentSeason || 1}E${currentEpisode || 1}`;
+          const epData = parsed[epKey];
+          if (epData && epData.time > 10) {
+            if (epData.duration && epData.time >= epData.duration - 10) {
+              savedTimeRef.current = 0; // Restart if finished
+            } else {
+              savedTimeRef.current = epData.time;
+            }
+          } else {
+            savedTimeRef.current = initialTime || 0;
+          }
+        } catch (e) {}
+      }
+    }
+
     if (sources.length > 0) {
       let targetIndex = 0;
       if (preferredQuality && preferredQuality !== 'Auto') {
@@ -540,25 +560,27 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
       }
       loadSource(sources[targetIndex], targetIndex); 
     }
-    return () => { 
-      if (hlsRef.current) { 
-        hlsRef.current.destroy(); 
-        hlsRef.current = null; 
-      } 
-    }; 
-  }, [sources]);
+    
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourcesStr, subjectId, currentSeason, currentEpisode, isLive, initialTime]);
 
+  useEffect(() => {
+    return () => {
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+    };
+  }, []);
   useEffect(() => { 
     if (videoRef.current) videoRef.current.playbackRate = playbackSpeed; 
   }, [playbackSpeed]);
-
   useEffect(() => { 
     if (videoRef.current) { 
       videoRef.current.volume = volume; 
       videoRef.current.muted = isMuted; 
     } 
   }, [volume, isMuted]);
-
   const handleSubtitleChange = useCallback((index: number) => {
     setActiveSubtitle(index);
     if (videoRef.current) {
@@ -568,11 +590,9 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
       }
     }
   }, []);
-
   useEffect(() => {
     const video = videoRef.current;
     if (!video || subtitles.length === 0) return;
-
     const initSubtitles = () => {
       if (activeSubtitle >= 0 && video.textTracks.length > activeSubtitle) {
         for (let i = 0; i < video.textTracks.length; i++) {
@@ -584,7 +604,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
          }
       }
     };
-
     if (video.readyState >= 1) {
       setTimeout(initSubtitles, 500);
     } else {
@@ -592,75 +611,155 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
         setTimeout(initSubtitles, 500);
       }, { once: true });
     }
-
     initSubtitles();
   }, [subtitles, activeSubtitle]);
-
   const handleMouseMove = useCallback(() => {
     if (minimized) return;
     setShowControls(true);
     if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
-    if (!locked && playing) {
+    if (!locked && (playing || isDragging)) {
       controlsTimeoutRef.current = setTimeout(() => { 
-        if (!showSettings && !showSourceSelect && !showSeasonSelector) setShowControls(false); 
+        if (!showSettings && !showSourceSelect && !showSeasonSelector && !isDragging) setShowControls(false); 
       }, 3000);
     }
-  }, [minimized, locked, playing, showSettings, showSourceSelect, showSeasonSelector]);
-
+  }, [minimized, locked, playing, showSettings, showSourceSelect, showSeasonSelector, isDragging]);
   const togglePlay = useCallback(() => { 
     if (locked) return; 
     if (videoRef.current) {
-      videoRef.current.paused ? attemptPlay() : videoRef.current.pause(); 
+      if (videoRef.current.paused) {
+        wantsToPlayRef.current = true;
+        attemptPlay();
+      } else {
+        wantsToPlayRef.current = false;
+        videoRef.current.pause();
+      }
     }
   }, [locked, attemptPlay]);
-  
   const skip = useCallback((seconds: number) => { 
-    if (videoRef.current && !locked && !isBuffering && !isLive) {
-      const newTime = videoRef.current.currentTime + seconds;
-      videoRef.current.currentTime = Math.max(0, Math.min(newTime, duration || Infinity));
+    if (videoRef.current && !locked && !isLive) {
+      const newTime = Math.max(0, Math.min(videoRef.current.currentTime + seconds, duration || Infinity));
+      videoRef.current.currentTime = newTime;
+      setCurrentTime(newTime);
     } 
-  }, [locked, isBuffering, isLive, duration]);
-  
+  }, [locked, isLive, duration]);
   const cycleSpeed = useCallback(() => { 
     const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2];
     const currentIndex = speeds.indexOf(playbackSpeed);
     const nextIndex = (currentIndex + 1) % speeds.length;
     setPlaybackSpeed(speeds[nextIndex]);
   }, [playbackSpeed]);
-  
   const handleDownload = useCallback((source: VideoSource) => { 
     const link = source.download || source.direct || source.stream; 
-    if (link) window.open(link, '_blank'); 
+    if (link) {
+      const anchor = document.createElement('a');
+      anchor.href = link;
+      anchor.target = '_blank';
+      anchor.setAttribute('download', '');
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+    }
   }, []);
-  
   const toggleMute = useCallback(() => setIsMuted(!isMuted), [isMuted]);
-  
   const adjustVolume = useCallback((delta: number) => {
     const newVol = Math.max(0, Math.min(1, volume + delta));
     setVolume(newVol);
     if (newVol > 0 && isMuted) setIsMuted(false);
   }, [volume, isMuted]);
-  
   const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!progressRef.current || !duration || locked) return;
     const rect = progressRef.current.getBoundingClientRect();
-    const pos = (e.clientX - rect.left) / rect.width;
+    const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     const newTime = pos * duration;
-    if (videoRef.current) videoRef.current.currentTime = newTime;
+    if (videoRef.current) {
+      videoRef.current.currentTime = newTime;
+      setCurrentTime(newTime);
+    }
   }, [duration, locked]);
+
+  const isDraggingRef = useRef(false);
+  const seekTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const togglePiP = useCallback(async () => {
+    try {
+      const video = videoRef.current as any;
+      if (!video) return;
+
+      if (video.readyState === 0) {
+        setPipError("Video is not ready yet.");
+        setTimeout(() => setPipError(null), 3000);
+        return;
+      }
+
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else if (typeof video.requestPictureInPicture === 'function') {
+        await video.requestPictureInPicture();
+      } else if (video.webkitSupportsPresentationMode && typeof video.webkitSetPresentationMode === "function") {
+        // Fallback for Safari
+        const currentMode = video.webkitPresentationMode;
+        const targetMode = currentMode === "picture-in-picture" ? "inline" : "picture-in-picture";
+        video.webkitSetPresentationMode(targetMode);
+      }
+    } catch (error: any) {
+      // Intentionally suppressing to warn to avoid strict automation error catches
+      console.warn('PiP not available:', error.message);
+      setPipError("Picture-in-Picture unavailable in this preview. Open app in a new tab.");
+      setTimeout(() => setPipError(null), 5000);
+    }
+  }, []);
+
+  const handleSeekStart = useCallback(() => {
+    isDraggingRef.current = true;
+    setIsDragging(true);
+    if (videoRef.current && !videoRef.current.paused) {
+      videoRef.current.pause();
+    }
+  }, []);
+
+  const handleSeekEnd = useCallback((e?: React.MouseEvent | React.TouchEvent | any) => {
+    isDraggingRef.current = false;
+    setIsDragging(false);
+    if (seekTimeoutRef.current) {
+      clearTimeout(seekTimeoutRef.current);
+    }
+    const slider = e?.target as HTMLInputElement;
+    if (slider && videoRef.current) {
+       const finalTime = parseFloat(slider.value);
+       videoRef.current.currentTime = finalTime;
+       savedTimeRef.current = finalTime;
+    }
+    
+    if (wantsToPlayRef.current) {
+      attemptPlay();
+    }
+  }, [attemptPlay]);
+
+  const handleSeek = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (locked || !duration) return;
+    const time = parseFloat(e.target.value);
+    setCurrentTime(time);
+    
+    if (seekTimeoutRef.current) {
+      clearTimeout(seekTimeoutRef.current);
+    }
+    seekTimeoutRef.current = setTimeout(() => {
+      if (videoRef.current) {
+        videoRef.current.currentTime = time;
+        savedTimeRef.current = time;
+      }
+    }, 150); // 150ms debounce
+  }, [locked, duration]);
 
   const handleSeasonChange = useCallback((season: number) => {
     onSeasonChange?.(season);
   }, [onSeasonChange]);
-
   const handleEpisodeSelect = useCallback((season: number, episode: number) => {
     onEpisodeChange?.(season, episode);
     setShowSeasonSelector(false);
   }, [onEpisodeChange]);
-
   const bufferedPercent = duration > 0 ? (buffered / duration) * 100 : 0;
   const playedPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
-
   const isSeries = movie?.type?.includes('Series') || movie?.type?.includes('TV') || (movie?.seasons && movie.seasons.length > 0);
 
   return (
@@ -681,12 +780,34 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
         className={`w-full h-full bg-black ${resizeMode === 'cover' ? 'object-cover' : 'object-contain'}`} 
         playsInline 
         onTimeUpdate={(e) => { 
+          if (isDraggingRef.current) return;
           const curr = e.currentTarget.currentTime;
           const dur = e.currentTarget.duration;
           setCurrentTime(curr); 
+          savedTimeRef.current = curr;
           updateBuffered(); 
-          if (onProgressUpdate && duration > 0) onProgressUpdate(curr, duration); 
-
+          const now = Date.now();
+          if (dur > 0 && (!lastProgressUpdateRef.current || now - lastProgressUpdateRef.current > 5000)) {
+            if (onProgressUpdate) {
+              onProgressUpdate(curr, dur); 
+            }
+            if (subjectId && !isLive) {
+               const key = `slflix_progress_${subjectId}`;
+               let parsed: Record<string, any> = {};
+               try {
+                 const data = localStorage.getItem(key);
+                 if (data) parsed = JSON.parse(data);
+               } catch (e) {}
+               const epKey = `S${currentSeason || 1}E${currentEpisode || 1}`;
+               parsed[epKey] = {
+                 time: curr,
+                 duration: dur,
+                 lastWatchedAt: Date.now()
+               };
+               localStorage.setItem(key, JSON.stringify(parsed));
+            }
+            lastProgressUpdateRef.current = now;
+          }
           if (
             autoPlayNext &&
             dur > 0 &&
@@ -715,74 +836,117 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
         }}
         onProgress={() => updateBuffered()}
         onError={(e) => {
+          e.preventDefault();
           setVideoError('Failed to load video. Please try another source.');
           setIsBuffering(false);
         }}
       >
       </video>
+      
+      {needsUserGesture && !minimized && (
+        <div className="absolute inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <button 
+            onClick={() => {
+              setNeedsUserGesture(false);
+              wantsToPlayRef.current = true;
+              const video = videoRef.current;
+              if (video) video.play().catch(() => {});
+            }}
+            className="w-24 h-24 bg-primary text-black rounded-full flex items-center justify-center hover:scale-110 transition-transform shadow-2xl shadow-primary/50"
+          >
+            <i className="fa-solid fa-play text-4xl ml-2"></i>
+          </button>
+        </div>
+      )}
 
       {isBuffering && networkState !== 'offline' && (
         <div className="absolute inset-0 flex items-center justify-center z-50 bg-black/80">
           <FastStreamLoader buffered={bufferedPercent / 100} />
         </div>
       )}
-
       {videoError && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-40">
-          <div className="text-center p-4">
-            <div className="text-red-500 text-lg mb-2">⚠️</div>
-            <p className="text-white">{videoError}</p>
-            <button 
-              onClick={() => setVideoError(null)}
-              className="mt-4 px-4 py-2 bg-primary text-black rounded-lg"
-            >
-              Try Again
-            </button>
-          </div>
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/90 z-[100]">
+          <RetroTvError errorCode="ERR" errorMessage="STREAM FAULT" className="scale-75 md:scale-100" />
+          <p className="mt-4 text-gray-400 font-mono text-xs max-w-sm text-center">{videoError}</p>
+          <button 
+            onClick={() => setVideoError(null)}
+            className="mt-6 px-6 py-2 bg-primary text-black font-bold rounded-lg hover:scale-105 transition-transform"
+          >
+            RETRY CONNECTION
+          </button>
         </div>
       )}
-
+      {pipError && (
+        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-[3000] bg-black/90 border border-white/10 text-white px-4 py-3 rounded-xl text-sm font-bold flex items-center gap-3 shadow-2xl animate-fade-in-down">
+          <i className="fa-solid fa-circle-exclamation text-yellow-500"></i>
+          {pipError}
+        </div>
+      )}
       {showSourceSelect && (
         <div 
-          className="absolute inset-0 z-[80] bg-black/90 flex items-center justify-center p-4" 
+          className="absolute inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in" 
           onClick={() => setShowSourceSelect(false)}
         >
           <div 
-            className="bg-[#1a1a2e] rounded-xl p-4 w-full max-w-sm" 
+            className="bg-[#12121a] border border-white/10 rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl transition-all transform scale-100" 
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-white font-bold">Select Quality</h3>
+            <div className="p-5 border-b border-white/5 flex justify-between items-center bg-gradient-to-r from-primary/10 to-transparent">
+              <div>
+                <h3 className="text-lg font-black text-white tracking-tight">Select Quality</h3>
+                <p className="text-gray-500 text-[10px] uppercase tracking-widest font-bold">Fast Streaming</p>
+              </div>
               <button 
                 onClick={() => setShowSourceSelect(false)} 
-                className="text-gray-400 hover:text-white"
+                className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-gray-400 hover:text-white transition-all"
               >
                 <i className="fa-solid fa-times"></i>
               </button>
             </div>
-            <div className="space-y-2">
+            <div className="p-4 space-y-2 max-h-[60vh] overflow-y-auto scrollbar-hide">
               {sources.map((s, i) => (
-                <div key={i} className="flex gap-2">
+                <div key={i} className="flex gap-2 group animate-slide-up" style={{ animationDelay: `${i * 40}ms` }}>
                   <button 
-                    onClick={() => { loadSource(s, i); setShowSourceSelect(false); }} 
-                    className={`flex-1 p-3 rounded-lg text-left flex justify-between ${activeSourceIndex === i ? 'bg-primary text-black' : 'bg-white/10 text-white'}`}
+                    onClick={() => { 
+                      const currentPos = videoRef.current?.currentTime || 0;
+                      loadSource(s, i, currentPos); 
+                      setShowSourceSelect(false); 
+                    }} 
+                    className={`flex-1 p-4 rounded-2xl text-left flex items-center justify-between transition-all border ${
+                        activeSourceIndex === i 
+                        ? 'bg-primary border-primary shadow-[0_0_20px_rgba(0,229,255,0.3)] text-black' 
+                        : 'bg-white/5 border-white/5 text-white hover:bg-white/10 hover:border-white/20'
+                    }`}
                   >
-                    <span className="font-bold">{s.label || s.quality + 'p'}</span>
-                    {s.type === 'hls' && <span className="text-xs opacity-70">HLS</span>}
+                    <div className="flex items-center gap-3">
+                        <div className={`w-10 h-7 rounded-lg flex items-center justify-center font-bold text-[10px] ${
+                            activeSourceIndex === i ? 'bg-black/20' : 'bg-white/10'
+                        }`}>
+                            {String(s.quality).toUpperCase().replace('P', '')}P
+                        </div>
+                        <span className="font-bold text-sm">{s.label || 'Standard Stream'}</span>
+                    </div>
+                    {activeSourceIndex === i && <i className="fa-solid fa-check text-xs"></i>}
                   </button>
-                  <button 
-                    onClick={() => handleDownload(s)} 
-                    className="p-3 bg-white/10 hover:bg-green-500/30 text-white rounded-lg"
-                  >
-                    <i className="fa-solid fa-download"></i>
-                  </button>
+                  <div className="flex flex-col items-center gap-1">
+                    <button 
+                      onClick={() => handleDownload(s)} 
+                      className="w-12 h-10 rounded-xl bg-white/5 hover:bg-emerald-500/20 text-gray-400 hover:text-emerald-500 border border-white/5 hover:border-emerald-500/30 transition-all flex items-center justify-center"
+                      title="Download"
+                    >
+                      <i className="fa-solid fa-download text-sm"></i>
+                    </button>
+                    {s.size && <span className="text-[9px] font-black text-emerald-500/60 tracking-tighter uppercase whitespace-nowrap">{s.size}</span>}
+                  </div>
                 </div>
               ))}
+            </div>
+            <div className="p-4 bg-black/20 text-center">
+                 <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Multi-Source Engine Enabled</p>
             </div>
           </div>
         </div>
       )}
-
       {showSettings && (
         <div 
           className="absolute inset-0 z-[80] bg-black/90 flex items-center justify-center p-4" 
@@ -801,7 +965,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
                 <i className="fa-solid fa-times"></i>
               </button>
             </div>
-            
             <div className="mb-4">
               <p className="text-gray-400 text-xs uppercase mb-2 flex items-center gap-2">
                 <i className="fa-solid fa-closed-captioning"></i> Subtitles
@@ -819,7 +982,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
                 )}
               </div>
             </div>
-
             {isSeries && movie && (
               <div className="mb-4">
                 <p className="text-gray-400 text-xs uppercase mb-2 flex items-center gap-2">
@@ -834,7 +996,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
                 />
               </div>
             )}
-
             <div className="mb-4">
               <p className="text-gray-400 text-xs uppercase mb-2 flex items-center gap-2">
                 <i className="fa-solid fa-gauge"></i> Speed
@@ -851,7 +1012,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
                 ))}
               </div>
             </div>
-
             <div>
               <p className="text-gray-400 text-xs uppercase mb-2 flex items-center gap-2">
                 <i className="fa-solid fa-expand"></i> Screen
@@ -871,7 +1031,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
                 </button>
               </div>
             </div>
-
             <div className="mt-4 border-t border-white/5 pt-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -899,7 +1058,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
           </div>
         </div>
       )}
-
       <div className={`absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-black/80 transition-opacity flex flex-col justify-between ${showControls && !locked && !showSettings && !showSourceSelect ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
         <div className="p-4 flex justify-between items-start">
           <div className="flex items-center gap-3">
@@ -914,7 +1072,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
               {subTitle && <p className="text-gray-400 text-xs">{subTitle}</p>}
             </div>
           </div>
-          
           <div className="flex gap-2">
             <button 
               onClick={() => {
@@ -927,7 +1084,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
             >
               <i className="fa-brands fa-whatsapp"></i>
             </button>
-            
             {isSeries && movie && (
               <>
                 <VideoPlayerBulkModalWrapper movieId={movie.subjectId || movie.detailPath || ''} seasonNumber={currentSeason} />
@@ -956,7 +1112,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
             </button>
           </div>
         </div>
-        
         <div className={`absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity duration-300 ${playing && !isBuffering ? 'opacity-0' : 'opacity-100'}`}>
           <button 
             onClick={togglePlay} 
@@ -965,32 +1120,44 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
             <i className={`fa-solid ${playing ? 'fa-pause' : 'fa-play'} text-2xl md:text-3xl ml-1`}></i>
           </button>
         </div>
-        
         {!minimized && (
           <div className="p-4 space-y-3">
             {!isLive && (
-              <div 
-                ref={progressRef} 
-                onClick={handleProgressClick} 
-                className="relative h-1.5 bg-white/20 rounded-full cursor-pointer group"
-              >
-                <div 
-                  className="absolute h-full bg-white/40 rounded-full transition-all" 
-                  style={{ width: `${bufferedPercent}%` }}
-                />
-                <div 
-                  className="absolute h-full bg-white rounded-full transition-all" 
-                  style={{ width: `${playedPercent}%` }}
-                />
-                {isBuffering && (
+              <div className="relative w-full h-6 flex items-center group">
+                <div className="absolute w-full h-1.5 bg-white/20 rounded-full overflow-hidden">
                   <div 
-                    className="absolute h-full bg-primary animate-pulse rounded-full" 
-                    style={{ width: `${Math.min(bufferedPercent - playedPercent, 20)}%` }}
+                    className="absolute h-full bg-white/40 rounded-full" 
+                    style={{ width: `${bufferedPercent}%` }}
                   />
-                )}
+                  <div 
+                    className="absolute h-full bg-primary rounded-full" 
+                    style={{ width: `${playedPercent}%` }}
+                  />
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max={duration || 0}
+                  step="0.1"
+                  value={currentTime}
+                  onChange={handleSeek}
+                  onMouseDown={handleSeekStart}
+                  onMouseUp={handleSeekEnd}
+                  onTouchStart={handleSeekStart}
+                  onTouchEnd={handleSeekEnd}
+                  className="absolute w-full h-1.5 appearance-none bg-transparent cursor-pointer z-10 outline-none
+                    [&::-webkit-slider-thumb]:appearance-none 
+                    [&::-webkit-slider-thumb]:w-4 
+                    [&::-webkit-slider-thumb]:h-4 
+                    [&::-webkit-slider-thumb]:rounded-full 
+                    [&::-webkit-slider-thumb]:bg-white 
+                    [&::-webkit-slider-thumb]:shadow-lg 
+                    [&::-webkit-slider-thumb]:scale-0 
+                    group-hover:[&::-webkit-slider-thumb]:scale-100 
+                    [&::-webkit-slider-thumb]:transition-transform"
+                />
               </div>
             )}
-            
             <div className="flex justify-between items-center text-white text-xs">
               <div className="flex items-center gap-3">
                 <button onClick={togglePlay}>
@@ -1005,7 +1172,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
                 )}
                 {isLive && <span className="text-red-500 font-bold">LIVE</span>}
               </div>
-              
               <div className="flex items-center gap-3">
                 <div className="relative flex items-center gap-2 group/vol">
                   <button onClick={toggleMute} className="hover:text-primary">
@@ -1023,29 +1189,30 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
                     />
                   </div>
                 </div>
-                
                 <button 
                   onClick={cycleSpeed} 
                   className="font-bold hover:text-primary"
                 >
                   {playbackSpeed}x
                 </button>
-                
                 <button onClick={toggleFullscreen} className="hover:text-primary">
                   <i className="fa-solid fa-expand"></i>
                 </button>
+                {('pictureInPictureEnabled' in document || (typeof HTMLVideoElement !== 'undefined' && 'webkitSupportsPresentationMode' in HTMLVideoElement.prototype)) && (
+                  <button onClick={togglePiP} className="hover:text-primary" title="Picture in Picture">
+                    <i className="fa-solid fa-clone"></i>
+                  </button>
+                )}
               </div>
             </div>
           </div>
         )}
       </div>
-      
       {networkState === 'unstable' && (
         <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-[100] bg-black/80 text-white px-4 py-2 rounded-full text-xs font-bold flex items-center gap-2 shadow-lg animate-fade-in-down">
           <i className="fa-solid fa-wifi text-yellow-500"></i> Network Unstable
         </div>
       )}
-      
       {networkState === 'offline' && isBuffering && (
         <div className="absolute inset-0 z-[100] bg-black/80 flex flex-col items-center justify-center animate-fade-in">
           <i className="fa-solid fa-wifi text-red-500 text-6xl mb-4 animate-pulse"></i>
@@ -1053,13 +1220,11 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
           <p className="text-gray-400 text-sm">Please check your internet connection.</p>
         </div>
       )}
-      
       {showReconnected && (
         <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-[100] bg-emerald-500/90 text-white px-4 py-2 rounded-full text-xs font-bold flex items-center gap-2 shadow-lg animate-fade-in-down">
           <i className="fa-solid fa-check-circle"></i> Connected. Resuming playback...
         </div>
       )}
-
       {showNextCountdown && (
         <div className="absolute inset-0 z-[100] bg-black/80 flex flex-col items-center justify-center animate-fade-in">
           <h2 className="text-white text-2xl font-bold mb-4">Next Episode</h2>
@@ -1100,7 +1265,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
           </div>
         </div>
       )}
-
       {locked && (
         <div className="absolute inset-0 z-[90] bg-black/80 flex items-center justify-center">
           <button 
@@ -1111,7 +1275,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
           </button>
         </div>
       )}
-      
       <div className="absolute bottom-16 md:bottom-20 left-4 z-40 pointer-events-none select-none">
         <div className="px-3 py-1.5 bg-black/60 backdrop-blur-md rounded opacity-60 hover:opacity-80 transition-opacity">
           <span className="text-white text-xs font-bold tracking-wider">
@@ -1122,7 +1285,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
     </div>
   );
 };
-
 const VideoPlayer = (props: VideoPlayerProps) => {
   if (props.isTrailer) {
     return <TrailerPlayer 
@@ -1134,5 +1296,4 @@ const VideoPlayer = (props: VideoPlayerProps) => {
   }
   return <StreamingPlayer {...props} />;
 };
-
 export default VideoPlayer;

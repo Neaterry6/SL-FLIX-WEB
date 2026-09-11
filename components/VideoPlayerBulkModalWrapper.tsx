@@ -1,26 +1,21 @@
 import React, { useState } from 'react';
 import BulkDownloadModal from './BulkDownloadModal';
-
 interface VideoPlayerBulkModalWrapperProps {
   movieId: string;
   seasonNumber?: number;
   className?: string;
 }
-
 const VideoPlayerBulkModalWrapper: React.FC<VideoPlayerBulkModalWrapperProps> = ({
   movieId,
   seasonNumber,
   className
 }) => {
   const [isOpen, setIsOpen] = useState(false);
-
   const handleDownload = (urls: string[]) => {
     urls.forEach(url => {
-      // Generate download URLs - use existing /api/sources endpoint
       window.open(url, '_blank');
     });
   };
-
   return (
     <>
       <div className={className}>
@@ -44,6 +39,4 @@ const VideoPlayerBulkModalWrapper: React.FC<VideoPlayerBulkModalWrapperProps> = 
     </>
   );
 };
-
-export default VideoPlayerBulkModalWrapper;
-
+export default VideoPlayerBulkModalWrapper;

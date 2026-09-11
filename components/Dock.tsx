@@ -1,5 +1,4 @@
 'use client';
-
 import {
   motion,
   MotionValue,
@@ -20,12 +19,10 @@ import {
   useState,
 } from 'react';
 import { cn } from '../lib/utils';
-
 const DOCK_HEIGHT = 128;
 const DEFAULT_MAGNIFICATION = 80;
 const DEFAULT_DISTANCE = 150;
 const DEFAULT_PANEL_HEIGHT = 64;
-
 type DockProps = {
   children: React.ReactNode;
   onClick?: () => void;
@@ -50,7 +47,6 @@ type DockIconProps = {
   children: React.ReactNode;
   onClick?: () => void;
 };
-
 type DocContextType = {
   mouseX: MotionValue;
   spring: SpringOptions;
@@ -62,13 +58,10 @@ type DockProviderProps = {
   onClick?: () => void;
   value: DocContextType;
 };
-
 const DockContext = createContext<DocContextType | undefined>(undefined);
-
 function DockProvider({ children, value }: DockProviderProps) {
   return <DockContext.Provider value={value}>{children}</DockContext.Provider>;
 }
-
 function useDock() {
   const context = useContext(DockContext);
   if (!context) {
@@ -76,7 +69,6 @@ function useDock() {
   }
   return context;
 }
-
 function Dock({
   children,
   className,
@@ -87,14 +79,11 @@ function Dock({
 }: DockProps) {
   const mouseX = useMotionValue(Infinity);
   const isHovered = useMotionValue(0);
-
   const maxHeight = useMemo(() => {
     return Math.max(DOCK_HEIGHT, magnification + magnification / 2 + 4);
   }, [magnification]);
-
   const heightRow = useTransform(isHovered, [0, 1], [panelHeight, maxHeight]);
   const height = useSpring(heightRow, spring);
-
   return (
     <motion.div
       style={{
@@ -127,27 +116,20 @@ function Dock({
     </motion.div>
   );
 }
-
 function DockItem({ children, className, onClick }: DockItemProps) {
   const ref = useRef<HTMLDivElement>(null);
-
   const { distance, magnification, mouseX, spring } = useDock();
-
   const isHovered = useMotionValue(0);
-
   const mouseDistance = useTransform(mouseX, (val) => {
     const domRect = ref.current?.getBoundingClientRect() ?? { x: 0, width: 0 };
     return val - domRect.x - domRect.width / 2;
   });
-
   const widthTransform = useTransform(
     mouseDistance,
     [-distance, 0, distance],
     [40, magnification, 40]
   );
-
   const width = useSpring(widthTransform, spring);
-
   return (
     <motion.div
       ref={ref}
@@ -171,21 +153,17 @@ function DockItem({ children, className, onClick }: DockItemProps) {
     </motion.div>
   );
 }
-
 function DockLabel({ children, className, ...rest }: DockLabelProps) {
   const restProps = rest as Record<string, unknown>;
   const isHovered = restProps['isHovered'] as MotionValue<number>;
   const [isVisible, setIsVisible] = useState(false);
-
   useEffect(() => {
     if (!isHovered) return;
     const unsubscribe = isHovered.on('change', (latest) => {
       setIsVisible(latest === 1);
     });
-
     return () => unsubscribe();
   }, [isHovered]);
-
   return (
     <AnimatePresence>
       {isVisible && (
@@ -207,13 +185,10 @@ function DockLabel({ children, className, ...rest }: DockLabelProps) {
     </AnimatePresence>
   );
 }
-
 function DockIcon({ children, className, ...rest }: DockIconProps) {
   const restProps = rest as Record<string, unknown>;
   const width = restProps['width'] as MotionValue<number>;
-
   const widthTransform = useTransform(width || useMotionValue(40), (val) => val / 2);
-
   return (
     <motion.div
       style={{ width: widthTransform }}
@@ -223,5 +198,4 @@ function DockIcon({ children, className, ...rest }: DockIconProps) {
     </motion.div>
   );
 }
-
 export { Dock, DockIcon, DockItem, DockLabel };

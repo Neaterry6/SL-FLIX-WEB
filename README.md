@@ -1,67 +1,63 @@
+# SL FLIX PRO
 
-# SL-FLIX PRO - Streaming Web App
+SL FLIX PRO is a modern, high-performance streaming and media application engineered with React, TypeScript, Express, and Tailwind CSS. Built for modern web and mobile devices, it delivers a smooth cinema experience with Live TV channels, real-time sports updates, webtoon reader, and on-demand streaming.
 
-This is a premium React + Vite + Express streaming application.
+## Features
 
-## How it Works
-1. **Frontend**: React 18 + Tailwind CSS + Vite, builds to `dist/`.
-2. **Backend**: Node/Express server serves static `dist/`, proxies streaming APIs, handles search/sources, visitor stats, Socket.io.
-3. **APIs**: Fetches from external sources (cineverse, moviebox.ph proxies), caches results, streams via token proxy.
-4. **Production**: `npm run build && npm start` (or `npm run production`).
-5. **Security**: Rate limiting, CSP, source file blocking, anti-right-click.
+- **Live TV & IPTV Network**: Over 500+ HD streaming stations with smart stream resolution, logo proxier, and continuous background playlist synchronization.
+- **Movie & Series Catalog**: High-definition movie details, dub selection, episode guide, and interactive player overlay.
+- **Live Sports Hub**: Real-time scores, match schedules, live action feeds, and sports highlights.
+- **Webtoon & Reader**: Interactive digital webtoon collection with continuous page viewer and reading history.
+- **Development Lounge (+18)**: Interactive developer coding & diagnostic UI featuring live terminal simulation and system status.
+- **HLS Streaming Player**: Custom HTML5/HLS video player with adaptive bitrate control, quality switching, and volume controls.
+- **Floating Navigation Dock**: Responsive desktop and mobile navigation dock with smooth spring animations.
 
-## Local Development
-```
-npm install
-npm run dev  # Vite dev server + Express proxy on :3000
-```
+## Tech Stack
 
-## Production Build & Serve
-```
-npm run build  # Vite build to dist/
-npm start      # node server.js (build && server)
-# or
-npm run production  # Optimized prod build + server
-```
+- **Frontend**: React 18, TypeScript, Tailwind CSS, Motion (Framer Motion), Lucide React
+- **Video Engine**: Hls.js, HTML5 Media Source Extensions
+- **Backend Server**: Node.js, Express, Custom Caching Engine
+- **Build System**: Vite, Esbuild, PostCSS
 
-## Deploy to Render (Free Tier Web Service)
+## Getting Started
 
 ### Prerequisites
-- GitHub account with repo pushed.
-- Render.com account (free).
+- Node.js (v18 or higher)
+- npm or yarn
 
-### Steps
-1. **Push to GitHub**:
-   ```
-   git init
-   git add .
-   git commit -m "Prepare for Render deploy"
-   git branch -M main
-   git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPO.git
-   git push -u origin main
+### Installation
+
+1. Install dependencies:
+   ```bash
+   npm install
    ```
 
-2. **Render Dashboard**:
-   - New → **Web Service**.
-   - Connect GitHub → Select repo/branch `main`.
-   - **Runtime**: Node.
-   - **Build Command**: `npm install`
-   - **Start Command**: `npm start`
-   - Create service.
+2. Start the development server:
+   ```bash
+   npm run dev
+   ```
 
-3. **Auto-deploys** on git push. Render URL: `https://your-service.onrender.com`.
+3. Build for production:
+   ```bash
+   npm run build
+   ```
 
-4. **Custom Domain** (Settings → Custom Domains).
+4. Run production server:
+   ```bash
+   npm run start
+   ```
 
-### Verify
-- Homepage loads.
-- `/api/home` returns data.
-- Search, movie details, streams work.
-- Logs: "SLFLIX Server running on port $PORT".
+## Project Structure
 
-## Security Notes
-- Client-side anti-cloning (index.html).
-- Server: Rate limits, CSP, proxies hide origins.
-- External APIs may change; monitor logs.
+```
+├── components/          # React components (LiveTv, Navbar, Footer, Dock, etc.)
+├── server/              # Express backend server and IPTV storage engine
+├── data/                # Local data storage and cached station lists
+├── services/            # Client data services
+├── types.ts             # Global TypeScript type definitions
+└── server.js            # Main server entry point
+```
 
-Test locally first: `npm run production`.
+## License
+
+MIT License. Built for seamless media streaming.

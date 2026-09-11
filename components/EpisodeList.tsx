@@ -1,15 +1,8 @@
-/**
- * SL-FLIX Episode List Component
- * Displays all episodes for a season with progressive loading,
- * smooth animations, and no fake content
- */
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { LazyLoadImage } from 'react-lazy-load-image-component';
 import 'react-lazy-load-image-component/src/effects/blur.css';
 import BulkDownloadButton from './BulkDownloadButton';
-import { getOptimizedImageUrl } from '../utils/image';
-
+import { getOptimizedImageUrl, DEFAULT_FAVICON_FALLBACK } from '../utils/image';
 interface Episode {
   episodeNumber: number;
   title?: string;
@@ -18,7 +11,6 @@ interface Episode {
   duration?: string;
   isPremium?: boolean;
 }
-
 interface EpisodeListProps {
   seasonNumber: number;
   episodes: Episode[];
@@ -28,8 +20,6 @@ interface EpisodeListProps {
   isLoading?: boolean;
   className?: string;
 }
-
-// Individual Episode Row
 interface EpisodeRowProps {
   episode: Episode;
   episodeNumber: number;
@@ -38,7 +28,6 @@ interface EpisodeRowProps {
   onClick: () => void;
   index: number;
 }
-
 const EpisodeRow: React.FC<EpisodeRowProps> = ({
   episode,
   episodeNumber,
@@ -51,20 +40,15 @@ const EpisodeRow: React.FC<EpisodeRowProps> = ({
   const [imageLoaded, setImageLoaded] = useState(false);
   const [showFadeIn, setShowFadeIn] = useState(false);
   const rowRef = useRef<HTMLButtonElement>(null);
-
-  // Trigger fade-in animation after mount
   useEffect(() => {
     const timer = setTimeout(() => setShowFadeIn(true), index * 50);
     return () => clearTimeout(timer);
   }, [index]);
-
-  // Smooth scroll to active episode
   useEffect(() => {
     if (isActive && rowRef.current) {
       rowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }, [isActive]);
-
   return (
     <button
       ref={rowRef}
@@ -84,18 +68,17 @@ const EpisodeRow: React.FC<EpisodeRowProps> = ({
         }
       `}
     >
-      {/* Episode Number */}
+      {}
       <div className={`
         w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 font-bold text-lg
         ${isActive ? 'bg-primary text-black' : 'bg-white/10 text-gray-400'}
       `}>
         {episodeNumber}
       </div>
-
-      {/* Thumbnail */}
+      {}
       <div className="relative w-32 h-18 rounded-lg overflow-hidden flex-shrink-0 bg-white/10">
         <LazyLoadImage
-          src={getOptimizedImageUrl(episode.thumbnail || `https://picsum.photos/seed/s${episodeNumber}/320/180`, 320)}
+          src={getOptimizedImageUrl(episode.thumbnail, 320)}
           alt={episode.title || `Episode ${episodeNumber}`}
           effect="blur"
           className={`
@@ -105,25 +88,24 @@ const EpisodeRow: React.FC<EpisodeRowProps> = ({
           wrapperClassName="w-full h-full"
           onError={(e) => {
             const target = e.target as HTMLImageElement;
-            target.style.display = 'none';
+            if (target.src !== DEFAULT_FAVICON_FALLBACK) {
+              target.src = DEFAULT_FAVICON_FALLBACK;
+            }
           }}
         />
-        
-        {/* Duration Badge */}
+        {}
         {episode.duration && (
           <div className="absolute bottom-1 right-1 bg-black/80 px-1.5 py-0.5 rounded text-[10px] text-white font-medium">
             {episode.duration}
           </div>
         )}
-
-        {/* Premium Badge */}
+        {}
         {episode.isPremium && (
           <div className="absolute top-1 right-1 bg-yellow-500 px-1.5 py-0.5 rounded text-[10px] text-black font-bold">
             PREMIUM
           </div>
         )}
-
-        {/* Play Overlay */}
+        {}
         <div className={`
           absolute inset-0 flex items-center justify-center bg-black/50
           transition-opacity duration-200
@@ -139,8 +121,7 @@ const EpisodeRow: React.FC<EpisodeRowProps> = ({
           </div>
         </div>
       </div>
-
-      {/* Episode Info */}
+      {}
       <div className="flex-1 text-left min-w-0">
         <h4 className={`
           text-sm font-semibold truncate transition-colors
@@ -173,8 +154,7 @@ const EpisodeRow: React.FC<EpisodeRowProps> = ({
           </span>
         </div>
       </div>
-
-      {/* Watched Indicator */}
+      {}
       <div className="flex-shrink-0">
         {isActive ? (
           <div className="w-3 h-3 rounded-full bg-primary animate-pulse shadow-[0_0_10px_rgba(0,229,255,0.8)]" />
@@ -187,8 +167,6 @@ const EpisodeRow: React.FC<EpisodeRowProps> = ({
     </button>
   );
 };
-
-// Skeleton Loader
 const EpisodeRowSkeleton: React.FC = () => (
   <div className="flex items-center gap-4 p-3 animate-pulse">
     <div className="w-10 h-10 rounded-lg bg-white/10" />
@@ -199,8 +177,6 @@ const EpisodeRowSkeleton: React.FC = () => (
     </div>
   </div>
 );
-
-// Main EpisodeList Component
 const EpisodeList: React.FC<EpisodeListProps> = ({
   seasonNumber,
   episodes = [],
@@ -213,7 +189,6 @@ const EpisodeList: React.FC<EpisodeListProps> = ({
   const [visibleCount, setVisibleCount] = useState(10);
   const containerRef = useRef<HTMLDivElement>(null);
   const [watchedProgress, setWatchedProgress] = useState<Record<string, any>>({});
-
   const loadProgress = () => {
     if (movieId) {
       const key = `slflix_progress_${movieId}`;
@@ -225,40 +200,29 @@ const EpisodeList: React.FC<EpisodeListProps> = ({
       }
     }
   };
-
   useEffect(() => {
     loadProgress();
     window.addEventListener('slflix_progress_update', loadProgress);
     return () => window.removeEventListener('slflix_progress_update', loadProgress);
   }, [movieId]);
-
-  // Lazy load more episodes as user scrolls
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-
     const handleScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = container;
-      // Load more when 80% scrolled
       if (scrollTop + clientHeight >= scrollHeight * 0.8) {
         setVisibleCount(prev => Math.min(prev + 10, episodes.length));
       }
     };
-
     container.addEventListener('scroll', handleScroll);
     return () => container.removeEventListener('scroll', handleScroll);
   }, [episodes.length]);
-
-  // Reset visible count when season changes
   useEffect(() => {
     setVisibleCount(10);
   }, [seasonNumber]);
-
-  // Handle episode selection
   const handleEpisodeClick = useCallback((episodeNumber: number) => {
     onEpisodeSelect(episodeNumber);
   }, [onEpisodeSelect]);
-
   if (isLoading) {
     return (
       <div className={`space-y-2 ${className}`}>
@@ -268,7 +232,6 @@ const EpisodeList: React.FC<EpisodeListProps> = ({
       </div>
     );
   }
-
   if (!episodes || episodes.length === 0) {
     return (
       <div className="text-center py-8 text-gray-500">
@@ -279,13 +242,11 @@ const EpisodeList: React.FC<EpisodeListProps> = ({
       </div>
     );
   }
-
   const visibleEpisodes = episodes.slice(0, visibleCount);
   const hasMore = visibleCount < episodes.length;
-
   return (
     <div ref={containerRef} className={`${className}`}>
-      {/* Header */}
+      {}
       <div className="flex items-center justify-between mb-4 px-2">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-white font-semibold">
@@ -297,11 +258,10 @@ const EpisodeList: React.FC<EpisodeListProps> = ({
           <BulkDownloadButton 
             movieId={movieId} 
             seasonNumber={seasonNumber} 
-            onClick={() => {/* TODO: open modal - parent state */ console.log('Open bulk download for season', seasonNumber)}} 
+            onClick={() => { console.log('Open bulk download for season', seasonNumber)}} 
           />
         </div>
-        
-        {/* Quick Jump */}
+        {}
         <div className="flex items-center gap-2">
           <button
             onClick={() => {
@@ -317,14 +277,12 @@ const EpisodeList: React.FC<EpisodeListProps> = ({
           </button>
         </div>
       </div>
-
-      {/* Episodes */}
+      {}
       <div className="space-y-2">
         {visibleEpisodes.map((episode, index) => {
           const epKey = `S${seasonNumber}E${episode.episodeNumber}`;
           const progressData = watchedProgress[epKey];
           const isWatched = progressData?.completed || false;
-          
           return (
             <EpisodeRow
               key={episode.episodeNumber}
@@ -338,8 +296,7 @@ const EpisodeList: React.FC<EpisodeListProps> = ({
           );
         })}
       </div>
-
-      {/* Load More Indicator */}
+      {}
       {hasMore && (
         <div className="py-4 text-center">
           <button
@@ -350,8 +307,7 @@ const EpisodeList: React.FC<EpisodeListProps> = ({
           </button>
         </div>
       )}
-
-      {/* Scroll to Top */}
+      {}
       {visibleCount > 20 && (
         <button
           onClick={() => containerRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
@@ -365,8 +321,6 @@ const EpisodeList: React.FC<EpisodeListProps> = ({
     </div>
   );
 };
-
-// "See All Episodes" Overlay
 interface SeeAllEpisodesOverlayProps {
   isOpen: boolean;
   onClose: () => void;
@@ -376,7 +330,6 @@ interface SeeAllEpisodesOverlayProps {
   onSeasonSelect: (season: number) => void;
   onEpisodeSelect: (season: number, episode: number) => void;
 }
-
 export const SeeAllEpisodesOverlay: React.FC<SeeAllEpisodesOverlayProps> = ({
   isOpen,
   onClose,
@@ -387,17 +340,14 @@ export const SeeAllEpisodesOverlay: React.FC<SeeAllEpisodesOverlayProps> = ({
   onEpisodeSelect
 }) => {
   const [selectedSeason, setSelectedSeason] = useState(currentSeason);
-
   useEffect(() => {
     setSelectedSeason(currentSeason);
   }, [currentSeason]);
-
   if (!isOpen) return null;
-
   return (
     <div className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-4 animate-fade-in">
       <div className="bg-[#1a1a2e] rounded-2xl w-full max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
-        {/* Header */}
+        {}
         <div className="flex items-center justify-between p-4 border-b border-white/10">
           <h2 className="text-xl font-bold text-white">All Episodes</h2>
           <button
@@ -409,8 +359,7 @@ export const SeeAllEpisodesOverlay: React.FC<SeeAllEpisodesOverlayProps> = ({
             </svg>
           </button>
         </div>
-
-        {/* Season Tabs */}
+        {}
         <div className="flex gap-2 p-4 border-b border-white/10 overflow-x-auto scrollbar-hide">
           {seasons.map(season => (
             <button
@@ -428,8 +377,7 @@ export const SeeAllEpisodesOverlay: React.FC<SeeAllEpisodesOverlayProps> = ({
             </button>
           ))}
         </div>
-
-        {/* Episodes List */}
+        {}
         <div className="flex-1 overflow-y-auto p-4">
           <EpisodeList
             seasonNumber={selectedSeason}
@@ -445,6 +393,4 @@ export const SeeAllEpisodesOverlay: React.FC<SeeAllEpisodesOverlayProps> = ({
     </div>
   );
 };
-
-export default EpisodeList;
-
+export default EpisodeList;

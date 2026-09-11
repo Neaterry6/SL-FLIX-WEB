@@ -1,34 +1,25 @@
 import { useState, useEffect, useRef } from 'react';
 import { ApiService } from '../services/api';
 import { MovieResult } from '../types';
-
 export const useMovieDetails = (initialMovie: MovieResult) => {
   const [movie, setMovie] = useState<MovieResult>(initialMovie);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(false);
   const prefetchTimeoutRef = useRef<NodeJS.Timeout>();
-
   useEffect(() => {
     mountedRef.current = true;
-    
     if (!initialMovie.subjectId && !initialMovie.detailPath) {
       setError('Invalid movie ID');
       return;
     }
-
     const loadMovieDetails = async () => {
       try {
         setLoading(true);
         setError(null);
-        
-        // Load full details
         const fullDetails = await ApiService.getDetails(initialMovie);
-        
         if (mountedRef.current) {
           setMovie(fullDetails);
-          
-          // Prefetch recommendations after details load
           if (fullDetails.recommendations?.length === 0) {
             prefetchTimeoutRef.current = setTimeout(() => {
               ApiService.getDetails(fullDetails).catch(() => {});
@@ -46,10 +37,7 @@ export const useMovieDetails = (initialMovie: MovieResult) => {
         }
       }
     };
-
-    // Start loading immediately but don't block UI
     loadMovieDetails();
-
     return () => {
       mountedRef.current = false;
       if (prefetchTimeoutRef.current) {
@@ -57,8 +45,6 @@ export const useMovieDetails = (initialMovie: MovieResult) => {
       }
     };
   }, [initialMovie.subjectId, initialMovie.detailPath]);
-
-  // Prefetch sources when user might click play
   const prefetchSources = () => {
     if (movie.subjectId && movie.hasResource !== false) {
       ApiService.getSources(
@@ -68,10 +54,8 @@ export const useMovieDetails = (initialMovie: MovieResult) => {
         1,
         movie.detailPath
       ).catch(() => {
-        // Silently fail prefetch
       });
     }
   };
-
   return { movie, loading, error, prefetchSources };
 };

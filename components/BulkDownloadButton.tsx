@@ -1,12 +1,10 @@
 import React from 'react';
-
 interface BulkDownloadButtonProps {
   movieId: string;
   seasonNumber?: number;
   onClick: () => void;
   className?: string;
 }
-
 const BulkDownloadButton: React.FC<BulkDownloadButtonProps> = ({
   movieId,
   seasonNumber,
@@ -32,6 +30,4 @@ const BulkDownloadButton: React.FC<BulkDownloadButtonProps> = ({
     </button>
   );
 };
-
-export default BulkDownloadButton;
-
+export default BulkDownloadButton;

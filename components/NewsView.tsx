@@ -3,7 +3,6 @@ import { LazyLoadImage } from 'react-lazy-load-image-component';
 import { motion, AnimatePresence } from 'motion/react';
 import Loader from './Loader';
 import { ApiService } from '../services/api';
-
 interface News {
     id: string;
     title: string;
@@ -17,7 +16,6 @@ interface News {
         viewCount?: number;
     };
 }
-
 interface Team {
     id: string;
     name: string;
@@ -26,13 +24,12 @@ interface Team {
     voteCount: string;
     abbreviation?: string;
 }
-
 interface Match {
     id: string;
     team1: Team;
     team2: Team;
-    status: string; // 'MatchEnded', 'MatchNotStart'
-    statusLive: number | string; // 3 = ended, 'Living' = live
+    status: string; 
+    statusLive: number | string; 
     playPath: string;
     startTime: string;
     endTime: string;
@@ -40,7 +37,6 @@ interface Match {
     league: string;
     round?: string;
 }
-
 interface Highlight {
     id: string;
     title: string;
@@ -52,13 +48,10 @@ interface Highlight {
         viewCount?: string;
     };
 }
-
 interface NewsViewProps {
     onPlayMatch?: (match: any) => void;
     onPlayHighlight?: (highlight: any) => void;
 }
-
-// Helper to format timestamps to nice readable dates
 const formatTimestamp = (timestampStr?: string) => {
     if (!timestampStr) return '';
     try {
@@ -74,7 +67,6 @@ const formatTimestamp = (timestampStr?: string) => {
         return '';
     }
 };
-
 const formatDuration = (secondsStr: string) => {
     try {
         const secs = Number(secondsStr);
@@ -86,31 +78,20 @@ const formatDuration = (secondsStr: string) => {
         return secondsStr;
     }
 };
-
 const NewsView: React.FC<NewsViewProps> = ({ onPlayMatch, onPlayHighlight }) => {
     const [activeTab, setActiveTab] = useState<'news' | 'matches' | 'highlights'>('news');
-    
-    // News state
     const [news, setNews] = useState<News[]>([]);
     const [newsLoading, setNewsLoading] = useState(true);
     const [newsPage, setNewsPage] = useState(1);
     const [loadingMoreNews, setLoadingMoreNews] = useState(false);
-    
-    // Feeds state (Matches + Highlights)
     const [matches, setMatches] = useState<Match[]>([]);
     const [highlights, setHighlights] = useState<Highlight[]>([]);
     const [feedsLoading, setFeedsLoading] = useState(false);
     const [feedsError, setFeedsError] = useState<string | null>(null);
-
-    // Selected Match Detail state
     const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
     const [matchDetail, setMatchDetail] = useState<any | null>(null);
     const [detailLoading, setDetailLoading] = useState(false);
-    
-    // Selected News Detail state
     const [selectedNews, setSelectedNews] = useState<News | null>(null);
-
-    // Load News
     const fetchNews = async (page = 1) => {
         if (page === 1) setNewsLoading(true);
         else setLoadingMoreNews(true);
@@ -130,8 +111,6 @@ const NewsView: React.FC<NewsViewProps> = ({ onPlayMatch, onPlayHighlight }) => 
             setLoadingMoreNews(false);
         }
     };
-
-    // Load Feeds (Matches & Highlights)
     const fetchFeeds = async () => {
         setFeedsLoading(true);
         setFeedsError(null);
@@ -150,11 +129,8 @@ const NewsView: React.FC<NewsViewProps> = ({ onPlayMatch, onPlayHighlight }) => 
             setFeedsLoading(false);
         }
     };
-
-    // Load Match Detail
     const handleViewMatchDetail = async (matchId: string) => {
         if (selectedMatchId === matchId) {
-            // Toggle close
             setSelectedMatchId(null);
             setMatchDetail(null);
             return;
@@ -173,7 +149,6 @@ const NewsView: React.FC<NewsViewProps> = ({ onPlayMatch, onPlayHighlight }) => 
             setDetailLoading(false);
         }
     };
-
     useEffect(() => {
         if (activeTab === 'news') {
             if (news.length === 0) fetchNews();
@@ -181,15 +156,13 @@ const NewsView: React.FC<NewsViewProps> = ({ onPlayMatch, onPlayHighlight }) => 
             if (matches.length === 0 && highlights.length === 0) fetchFeeds();
         }
     }, [activeTab]);
-
     const loadMoreNews = () => {
         setNewsPage(prev => prev + 1);
         fetchNews(newsPage + 1);
     };
-
     return (
         <div className="p-4 md:p-8 bg-[#07070d] min-h-screen text-white pt-24 md:pt-28 pb-32">
-            {/* Header & Tabs */}
+            {}
             <div className="max-w-7xl mx-auto mb-10">
                 <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 border-b border-white/5 pb-6">
                     <div>
@@ -199,8 +172,7 @@ const NewsView: React.FC<NewsViewProps> = ({ onPlayMatch, onPlayHighlight }) => 
                         </h1>
                         <p className="text-gray-400 text-sm mt-2 font-medium">Your ultimate arena for sports news, live streams, scoreboards, and match highlights.</p>
                     </div>
-                    
-                    {/* Navigation Tabs */}
+                    {}
                     <div className="flex bg-white/5 p-1 rounded-xl border border-white/5 self-start">
                         <button 
                             onClick={() => setActiveTab('news')}
@@ -226,12 +198,10 @@ const NewsView: React.FC<NewsViewProps> = ({ onPlayMatch, onPlayHighlight }) => 
                     </div>
                 </div>
             </div>
-
-            {/* Content Container */}
+            {}
             <div className="max-w-7xl mx-auto">
                 <AnimatePresence mode="wait">
-                    
-                    {/* SPORTS NEWS TAB */}
+                    {}
                     {activeTab === 'news' && (
                         <motion.div 
                             key="news-tab"
@@ -262,7 +232,7 @@ const NewsView: React.FC<NewsViewProps> = ({ onPlayMatch, onPlayHighlight }) => 
                                                     className="bg-[#10101c] rounded-3xl overflow-hidden border border-white/5 hover:border-primary/50 transition-all flex flex-col hover:-translate-y-2 duration-300 cursor-pointer group shadow-[0_10px_30px_rgba(0,0,0,0.5)]"
                                                 >
                                                     <div className="relative overflow-hidden aspect-video">
-                                                        <LazyLoadImage src={coverUrl} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" referrerPolicy="no-referrer" />
+                                                        <LazyLoadImage src={coverUrl} onError={(e) => { (e.target as HTMLImageElement).src = 'https://files.catbox.moe/lhdbe0.png'; }} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" referrerPolicy="no-referrer" />
                                                         <div className="absolute inset-0 bg-gradient-to-t from-[#10101c] via-transparent to-transparent"></div>
                                                     </div>
                                                     <div className="p-5 flex-grow flex flex-col justify-between">
@@ -292,8 +262,7 @@ const NewsView: React.FC<NewsViewProps> = ({ onPlayMatch, onPlayHighlight }) => 
                             )}
                         </motion.div>
                     )}
-
-                    {/* LIVE MATCHES & FIXTURES TAB */}
+                    {}
                     {activeTab === 'matches' && (
                         <motion.div 
                             key="matches-tab"
@@ -322,27 +291,24 @@ const NewsView: React.FC<NewsViewProps> = ({ onPlayMatch, onPlayHighlight }) => 
                                         const isLive = !isEnded && match.status !== 'MatchNotStart' && (match.statusLive === 'Living' || (match.playPath && match.playPath.length > 0));
                                         const isUpcoming = match.status === 'MatchNotStart' || (!isLive && !isEnded);
                                         const isSelected = selectedMatchId === match.id;
-
                                         return (
                                             <div key={match.id} className="bg-[#10101c] rounded-3xl border border-white/5 overflow-hidden shadow-[0_10px_40px_rgba(0,0,0,0.6)]">
-                                                {/* Match Score Card */}
+                                                {}
                                                 <div className="p-6 md:p-8 flex flex-col md:flex-row items-center justify-between gap-8">
-                                                    {/* League / Info */}
+                                                    {}
                                                     <div className="flex flex-col items-center md:items-start text-center md:text-left md:w-1/4">
                                                         <span className="text-[10px] uppercase font-black tracking-widest text-primary px-3 py-1 bg-primary/10 rounded-full border border-primary/20 mb-3">{match.league}</span>
                                                         <span className="text-xs text-gray-500 font-bold">{match.type === 'football' ? 'Football' : match.type} Match</span>
                                                         <span className="text-xs text-gray-400 font-bold mt-1.5">{formatTimestamp(match.startTime)}</span>
                                                     </div>
-
-                                                    {/* Scoreboard block */}
+                                                    {}
                                                     <div className="flex-grow flex items-center justify-center gap-4 md:gap-10 md:w-2/4">
-                                                        {/* Team 1 */}
+                                                        {}
                                                         <div className="flex flex-col md:flex-row items-center gap-3 w-1/3 justify-end text-right">
                                                             <span className="font-black text-white text-base md:text-lg line-clamp-1">{match.team1.name}</span>
                                                             <img src={match.team1.avatar || 'https://pbcdn.aoneroom.com/image/2026/04/22/98a8c2b9e4a5af94fe2e1e35e6aa0b5a.png'} alt={match.team1.name} className="w-12 h-12 object-contain bg-white/5 rounded-full p-1" />
                                                         </div>
-
-                                                        {/* Score / VS Display */}
+                                                        {}
                                                         <div className="flex flex-col items-center justify-center px-4 py-2 bg-white/5 rounded-2xl border border-white/5 min-w-[100px]">
                                                             {isEnded ? (
                                                                 <span className="text-2xl font-black text-white tracking-widest">{match.team1.score} - {match.team2.score}</span>
@@ -357,15 +323,13 @@ const NewsView: React.FC<NewsViewProps> = ({ onPlayMatch, onPlayHighlight }) => 
                                                                 <span className="text-base font-black text-gray-400 uppercase tracking-widest">VS</span>
                                                             )}
                                                         </div>
-
-                                                        {/* Team 2 */}
+                                                        {}
                                                         <div className="flex flex-col md:flex-row-reverse items-center gap-3 w-1/3 justify-end text-left">
                                                             <span className="font-black text-white text-base md:text-lg line-clamp-1">{match.team2.name}</span>
                                                             <img src={match.team2.avatar || 'https://pbcdn.aoneroom.com/image/2026/04/22/98a8c2b9e4a5af94fe2e1e35e6aa0b5a.png'} alt={match.team2.name} className="w-12 h-12 object-contain bg-white/5 rounded-full p-1" />
                                                         </div>
                                                     </div>
-
-                                                    {/* Stream Controls */}
+                                                    {}
                                                     <div className="flex flex-wrap md:flex-col items-center justify-center gap-3 w-full md:w-1/4">
                                                         {isLive && onPlayMatch && (
                                                             <button 
@@ -376,7 +340,6 @@ const NewsView: React.FC<NewsViewProps> = ({ onPlayMatch, onPlayHighlight }) => 
                                                                 Watch Stream
                                                             </button>
                                                         )}
-                                                        
                                                         <button 
                                                             onClick={() => handleViewMatchDetail(match.id)}
                                                             className={`w-full py-3 px-6 text-white font-bold text-sm uppercase tracking-wider rounded-xl transition-all border flex items-center justify-center gap-2 ${isSelected ? 'bg-primary border-primary text-black' : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-primary/30'}`}
@@ -386,8 +349,7 @@ const NewsView: React.FC<NewsViewProps> = ({ onPlayMatch, onPlayHighlight }) => 
                                                         </button>
                                                     </div>
                                                 </div>
-
-                                                {/* Expanded Match Details (Stats, Streams) */}
+                                                {}
                                                 <AnimatePresence>
                                                     {isSelected && (
                                                         <motion.div 
@@ -402,21 +364,19 @@ const NewsView: React.FC<NewsViewProps> = ({ onPlayMatch, onPlayHighlight }) => 
                                                             ) : matchDetail ? (
                                                                 <div className="p-6 md:p-8 space-y-8">
                                                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                                                        {/* Voting/Stats */}
+                                                                        {}
                                                                         <div className="bg-white/5 rounded-2xl p-6 border border-white/5 flex flex-col justify-center">
                                                                             <h4 className="text-sm uppercase font-black tracking-widest text-gray-400 mb-6 flex items-center gap-2">
                                                                                 <i className="fa-solid fa-square-poll-vertical text-primary"></i>
                                                                                 Fan Predictions
                                                                             </h4>
-                                                                            
-                                                                            {/* Bar stats */}
+                                                                            {}
                                                                             {(() => {
                                                                                 const votes1 = Number(matchDetail.match?.team1?.voteCount || 0);
                                                                                 const votes2 = Number(matchDetail.match?.team2?.voteCount || 0);
                                                                                 const total = votes1 + votes2;
                                                                                 const percent1 = total > 0 ? Math.round((votes1 / total) * 100) : 50;
                                                                                 const percent2 = total > 0 ? Math.round((votes2 / total) * 100) : 50;
-                                                                                
                                                                                 return (
                                                                                     <div className="space-y-4">
                                                                                         <div className="flex justify-between items-end">
@@ -429,8 +389,7 @@ const NewsView: React.FC<NewsViewProps> = ({ onPlayMatch, onPlayHighlight }) => 
                                                                                                 <span className="text-xs text-red-500 font-bold">{votes2} votes ({percent2}%)</span>
                                                                                             </div>
                                                                                         </div>
-                                                                                        
-                                                                                        {/* Custom Animated bar */}
+                                                                                        {}
                                                                                         <div className="h-4 bg-white/10 rounded-full overflow-hidden flex relative">
                                                                                             <motion.div 
                                                                                                 initial={{ width: 0 }}
@@ -449,8 +408,7 @@ const NewsView: React.FC<NewsViewProps> = ({ onPlayMatch, onPlayHighlight }) => 
                                                                                 );
                                                                             })()}
                                                                         </div>
-
-                                                                        {/* Stream links / Live Channels */}
+                                                                        {}
                                                                         <div className="bg-white/5 rounded-2xl p-6 border border-white/5">
                                                                             <h4 className="text-sm uppercase font-black tracking-widest text-gray-400 mb-4 flex items-center gap-2">
                                                                                 <i className="fa-solid fa-satellite-dish text-primary"></i>
@@ -485,38 +443,28 @@ const NewsView: React.FC<NewsViewProps> = ({ onPlayMatch, onPlayHighlight }) => 
                                                                             )}
                                                                         </div>
                                                                     </div>
-                                                                    
-                                                                    {/* Detailed Match Stats */}
+                                                                    {}
                                                                     {(() => {
                                                                         const score1 = Number(matchDetail.match?.team1?.score || 0);
                                                                         const score2 = Number(matchDetail.match?.team2?.score || 0);
-                                                                        
-                                                                        // Generate deterministic stats for match
                                                                         const getDeterministicStats = (id: string, s1: number, s2: number) => {
                                                                             let hash = 0;
                                                                             for (let i = 0; i < id.length; i++) {
                                                                                 hash = id.charCodeAt(i) + ((hash << 5) - hash);
                                                                             }
                                                                             const seed = Math.abs(hash);
-
-                                                                            const pos1 = 40 + (seed % 21); // 40% to 60%
+                                                                            const pos1 = 40 + (seed % 21); 
                                                                             const pos2 = 100 - pos1;
-
                                                                             const shots1 = s1 + 3 + (seed % 8);
                                                                             const shots2 = s2 + 1 + (seed % 6);
-
                                                                             const target1 = s1 + 1 + (seed % 4);
                                                                             const target2 = s2 + (seed % 3);
-
                                                                             const corners1 = 2 + (seed % 6);
                                                                             const corners2 = 1 + (seed % 5);
-
                                                                             const fouls1 = 8 + (seed % 7);
                                                                             const fouls2 = 9 + (seed % 8);
-
                                                                             const yellow1 = seed % 4;
                                                                             const yellow2 = (seed >> 1) % 5;
-
                                                                             return [
                                                                                 { name: "Possession (%)", val1: pos1, val2: pos2, isPercent: true },
                                                                                 { name: "Shots on Target", val1: target1, val2: target2 },
@@ -526,22 +474,18 @@ const NewsView: React.FC<NewsViewProps> = ({ onPlayMatch, onPlayHighlight }) => 
                                                                                 { name: "Yellow Cards", val1: yellow1, val2: yellow2 },
                                                                             ];
                                                                         };
-
                                                                         const stats = getDeterministicStats(matchDetail.match?.id || 'default', score1, score2);
-
                                                                         return (
                                                                             <div className="bg-white/5 rounded-2xl p-6 border border-white/5 space-y-4">
                                                                                 <h4 className="text-sm uppercase font-black tracking-widest text-gray-400 mb-6 flex items-center gap-2">
                                                                                     <i className="fa-solid fa-chart-simple text-primary"></i>
                                                                                     Match Performance Statistics
                                                                                 </h4>
-                                                                                
                                                                                 <div className="space-y-4">
                                                                                     {stats.map((stat, idx) => {
                                                                                         const total = stat.val1 + stat.val2;
                                                                                         const pct1 = total > 0 ? Math.round((stat.val1 / total) * 100) : 50;
                                                                                         const pct2 = total > 0 ? Math.round((stat.val2 / total) * 100) : 50;
-                                                                                        
                                                                                         return (
                                                                                             <div key={idx} className="space-y-1.5">
                                                                                                 <div className="flex justify-between items-center text-xs md:text-sm font-bold text-gray-300">
@@ -549,8 +493,7 @@ const NewsView: React.FC<NewsViewProps> = ({ onPlayMatch, onPlayHighlight }) => 
                                                                                                     <span className="text-gray-500 uppercase tracking-wider text-[10px] text-center flex-grow font-black">{stat.name}</span>
                                                                                                     <span className="w-16 text-right font-black">{stat.val2}{stat.isPercent ? '%' : ''}</span>
                                                                                                 </div>
-                                                                                                
-                                                                                                {/* Double Bar Visual */}
+                                                                                                {}
                                                                                                 <div className="h-2 bg-white/5 rounded-full overflow-hidden flex relative">
                                                                                                     <div 
                                                                                                         style={{ width: `${pct1}%` }}
@@ -568,8 +511,7 @@ const NewsView: React.FC<NewsViewProps> = ({ onPlayMatch, onPlayHighlight }) => 
                                                                             </div>
                                                                         );
                                                                     })()}
-                                                                    
-                                                                    {/* Metadata */}
+                                                                    {}
                                                                     <div className="flex flex-wrap items-center justify-around gap-6 pt-6 border-t border-white/5 text-xs text-gray-500 font-bold text-center">
                                                                         <div>
                                                                             <span className="block text-gray-600 mb-1">STADIUM ROUND</span>
@@ -598,8 +540,7 @@ const NewsView: React.FC<NewsViewProps> = ({ onPlayMatch, onPlayHighlight }) => 
                             )}
                         </motion.div>
                     )}
-
-                    {/* MATCH HIGHLIGHTS TAB */}
+                    {}
                     {activeTab === 'highlights' && (
                         <motion.div 
                             key="highlights-tab"
@@ -636,29 +577,25 @@ const NewsView: React.FC<NewsViewProps> = ({ onPlayMatch, onPlayHighlight }) => 
                                                 }}
                                                 className="group cursor-pointer bg-[#10101c] rounded-3xl overflow-hidden border border-white/5 hover:border-primary/50 shadow-[0_15px_35px_rgba(0,0,0,0.5)] transition-all flex flex-col h-full"
                                             >
-                                                {/* Thumbnail */}
+                                                {}
                                                 <div className="relative aspect-video overflow-hidden">
                                                     <LazyLoadImage src={coverUrl} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
-                                                    
-                                                    {/* Gradient overlay */}
+                                                    {}
                                                     <div className="absolute inset-0 bg-black/30 group-hover:bg-black/10 transition-colors flex items-center justify-center">
                                                         <div className="w-14 h-14 rounded-full bg-primary/95 text-black flex items-center justify-center shadow-[0_0_25px_rgba(0,229,255,0.4)] transform scale-90 group-hover:scale-100 transition-transform duration-300">
                                                             <i className="fa-solid fa-play text-xl ml-1"></i>
                                                         </div>
                                                     </div>
-
-                                                    {/* Duration badge */}
+                                                    {}
                                                     {item.duration && (
                                                         <span className="absolute bottom-3 right-3 px-2 py-1 bg-black/80 backdrop-blur-md rounded-md text-[10px] font-black text-white uppercase tracking-wider border border-white/5">
                                                             {formatDuration(item.duration)}
                                                         </span>
                                                     )}
                                                 </div>
-
-                                                {/* Meta */}
+                                                {}
                                                 <div className="p-5 flex-grow flex flex-col justify-between">
                                                     <h3 className="font-black text-white text-base leading-snug line-clamp-2 group-hover:text-primary transition-colors mb-4">{item.title}</h3>
-                                                    
                                                     <div className="flex items-center justify-between text-[10px] text-gray-500 font-bold pt-3 border-t border-white/5">
                                                         <span className="flex items-center gap-1"><i className="fa-regular fa-clock"></i>{formatTimestamp(item.createTime)?.split(',')[0] || 'Recently'}</span>
                                                         {item.stat?.viewCount && <span className="flex items-center gap-1"><i className="fa-regular fa-eye"></i>{item.stat.viewCount} plays</span>}
@@ -671,15 +608,12 @@ const NewsView: React.FC<NewsViewProps> = ({ onPlayMatch, onPlayHighlight }) => 
                             )}
                         </motion.div>
                     )}
-
                 </AnimatePresence>
-
-                {/* News Detail Modal */}
+                {}
                 <AnimatePresence>
                     {selectedNews && (() => {
                         const coverUrl = typeof selectedNews.cover === 'string' ? selectedNews.cover : (selectedNews.cover?.url || 'https://files.catbox.moe/lhdbe0.png');
                         const fullUrl = selectedNews.url || (selectedNews.detailPath ? `https://www.omegatech.app${selectedNews.detailPath}` : '');
-                        
                         return (
                             <motion.div 
                                 initial={{ opacity: 0 }}
@@ -696,15 +630,14 @@ const NewsView: React.FC<NewsViewProps> = ({ onPlayMatch, onPlayHighlight }) => 
                                     className="bg-[#0c0c16] border border-white/10 rounded-3xl overflow-hidden w-full max-w-2xl shadow-[0_30px_70px_rgba(0,0,0,0.8)] relative max-h-[85vh] flex flex-col"
                                     onClick={(e) => e.stopPropagation()}
                                 >
-                                    {/* Close button */}
+                                    {}
                                     <button 
                                         onClick={() => setSelectedNews(null)}
                                         className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full bg-black/60 border border-white/10 text-white flex items-center justify-center hover:bg-primary hover:text-black transition-all group"
                                     >
                                         <i className="fa-solid fa-xmark text-lg group-hover:scale-110"></i>
                                     </button>
-
-                                    {/* Hero Banner inside Modal */}
+                                    {}
                                     <div className="relative aspect-video overflow-hidden flex-shrink-0">
                                         <LazyLoadImage src={coverUrl} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                                         <div className="absolute inset-0 bg-gradient-to-t from-[#0c0c16] via-transparent to-transparent"></div>
@@ -714,8 +647,7 @@ const NewsView: React.FC<NewsViewProps> = ({ onPlayMatch, onPlayHighlight }) => 
                                             </span>
                                         </div>
                                     </div>
-
-                                    {/* Scrollable content */}
+                                    {}
                                     <div className="p-6 md:p-8 space-y-6 overflow-y-auto flex-grow scrollbar-hide">
                                         <div className="space-y-3">
                                             <h2 className="text-xl md:text-2xl font-black text-white leading-tight">
@@ -726,9 +658,7 @@ const NewsView: React.FC<NewsViewProps> = ({ onPlayMatch, onPlayHighlight }) => 
                                                 {selectedNews.stat?.viewCount !== undefined && <span className="flex items-center gap-1.5"><i className="fa-regular fa-eye text-primary"></i>{selectedNews.stat.viewCount} Views</span>}
                                             </div>
                                         </div>
-
                                         <div className="h-px bg-white/5" />
-
                                         <div className="space-y-4">
                                             <h4 className="text-xs uppercase tracking-widest text-primary font-black">Summary & Details</h4>
                                             <p className="text-gray-300 text-sm md:text-base leading-relaxed font-medium">
@@ -736,8 +666,7 @@ const NewsView: React.FC<NewsViewProps> = ({ onPlayMatch, onPlayHighlight }) => 
                                             </p>
                                         </div>
                                     </div>
-
-                                    {/* Footer Action */}
+                                    {}
                                     {fullUrl && (
                                         <div className="p-6 bg-[#090910] border-t border-white/5 flex flex-col sm:flex-row items-center justify-between gap-4 flex-shrink-0">
                                             <div className="text-xs text-gray-500 font-medium">Source: OmegaTech Sports Network</div>
@@ -759,5 +688,4 @@ const NewsView: React.FC<NewsViewProps> = ({ onPlayMatch, onPlayHighlight }) => 
         </div>
     );
 };
-
 export default NewsView;

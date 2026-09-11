@@ -4,8 +4,7 @@ import { ApiService } from '../services/api';
 import MovieCard from './MovieCard';
 import Loader from './Loader';
 import { ChevronRightIcon } from './Icons';
-import { getOptimizedImageUrl } from '../utils/image';
-
+import { getOptimizedImageUrl, DEFAULT_FAVICON_FALLBACK } from '../utils/image';
 const HeroSkeleton = () => (
   <div className="h-[50vh] md:h-[70vh] relative flex items-center bg-[#0a0a15]">
     <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a15] via-[#0a0a15]/30 to-transparent"></div>
@@ -17,7 +16,6 @@ const HeroSkeleton = () => (
     </div>
   </div>
 );
-
 const CategorySkeleton = () => (
   <div className="my-8 px-[4%]">
     <div className="h-8 w-48 bg-white/10 rounded mb-4 animate-pulse"></div>
@@ -31,11 +29,9 @@ const CategorySkeleton = () => (
     </div>
   </div>
 );
-
 const Hero: React.FC<{ movies: MovieResult[], onPlay: (m: MovieResult) => void }> = ({ movies, onPlay }) => {
   const [currentIndex, setCurrentIndex] = React.useState(0);
   const [isTransitioning, setIsTransitioning] = React.useState(false);
-  
   React.useEffect(() => {
     if (movies.length <= 1) return;
     const interval = setInterval(() => {
@@ -47,9 +43,7 @@ const Hero: React.FC<{ movies: MovieResult[], onPlay: (m: MovieResult) => void }
     }, 8000);
     return () => clearInterval(interval);
   }, [movies.length]);
-
   if (!movies.length) return <HeroSkeleton />;
-  
   const m = movies[currentIndex];
   const goToSlide = (idx: number) => { 
     if (idx === currentIndex) return; 
@@ -59,9 +53,7 @@ const Hero: React.FC<{ movies: MovieResult[], onPlay: (m: MovieResult) => void }
       setIsTransitioning(false); 
     }, 300); 
   };
-
   const rating = m.imdbRating && m.imdbRating !== '0' && m.imdbRating !== 'null' ? m.imdbRating : null;
-
   return (
     <div className="h-[75vh] md:h-[80vh] relative flex items-center bg-[#0a0a15] overflow-hidden group mt-16 md:mt-0">
       <div className="absolute inset-0">
@@ -75,7 +67,6 @@ const Hero: React.FC<{ movies: MovieResult[], onPlay: (m: MovieResult) => void }
       </div>
       <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a15] via-[#0a0a15]/85 to-transparent"></div>
       <div className="absolute inset-0 bg-gradient-to-r from-[#0a0a15] via-[#0a0a15]/90 to-[#0a0a15]/30"></div>
-      
       <div className="relative z-10 px-[4%] md:px-[6%] w-full max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-8 md:gap-16">
         <div className={`flex-1 transition-all duration-700 w-full ${isTransitioning ? 'opacity-0 -translate-x-4' : 'opacity-100 translate-x-0'}`}>
           <div className="flex flex-wrap items-center gap-3 mb-4">
@@ -89,22 +80,18 @@ const Hero: React.FC<{ movies: MovieResult[], onPlay: (m: MovieResult) => void }
             )}
             {m.releaseDate && <span className="text-gray-300 text-[10px] md:text-xs font-medium bg-white/5 px-2 py-1 rounded-sm">{m.releaseDate.substring(0, 4)}</span>}
           </div>
-          
           <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-black text-white mb-4 leading-[1.1] tracking-tighter drop-shadow-2xl line-clamp-3">
             {m.title}
           </h1>
-          
           {m.genre && (
             <div className="flex items-center gap-2 text-sm text-gray-300 mb-6 font-medium">
               <span className="text-primary">•</span>
               <span>{m.genre}</span>
             </div>
           )}
-          
           <p className="text-gray-300 text-sm sm:text-base md:text-lg mb-8 max-w-2xl line-clamp-3 md:line-clamp-4 drop-shadow-lg font-medium leading-relaxed">
             {m.description || "Watch this and more trending content in ultra high definition. Stream anywhere, anytime on SLFLIX."}
           </p>
-          
           <div className="flex flex-wrap items-center gap-4">
             <button 
               onClick={() => onPlay(m)} 
@@ -122,13 +109,12 @@ const Hero: React.FC<{ movies: MovieResult[], onPlay: (m: MovieResult) => void }
             </button>
           </div>
         </div>
-
         <div className={`hidden md:block w-[280px] lg:w-[340px] flex-shrink-0 transition-all duration-700 delay-100 ${isTransitioning ? 'opacity-0 translate-x-8 scale-95' : 'opacity-100 translate-x-0 scale-100'}`}>
            <div 
              className="w-full aspect-[2/3] rounded-2xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.8)] border border-white/10 relative cursor-pointer group"
              onClick={() => onPlay(m)}
            >
-              <img src={getOptimizedImageUrl(m.cover, 600)} alt={m.title} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+              <img src={getOptimizedImageUrl(m.cover, 600)} onError={(e) => { (e.target as HTMLImageElement).src = DEFAULT_FAVICON_FALLBACK; }} alt={m.title} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
               <div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition-colors duration-500"></div>
               <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-500">
                   <div className="w-16 h-16 rounded-full bg-primary/90 text-black flex items-center justify-center shadow-[0_0_30px_rgba(0,229,255,0.5)] transform scale-50 group-hover:scale-100 transition-transform duration-500 delay-100">
@@ -138,7 +124,6 @@ const Hero: React.FC<{ movies: MovieResult[], onPlay: (m: MovieResult) => void }
            </div>
         </div>
       </div>
-
       {movies.length > 1 && (
         <div className="absolute bottom-6 right-[4%] md:right-[6%] z-20 flex items-center gap-3 bg-black/40 backdrop-blur-md p-1.5 rounded-xl border border-white/5 max-w-[90%] overflow-x-auto scrollbar-hide">
           {movies.map((movie, idx) => (
@@ -147,7 +132,7 @@ const Hero: React.FC<{ movies: MovieResult[], onPlay: (m: MovieResult) => void }
               onClick={() => goToSlide(idx)} 
               className={`relative w-10 md:w-12 h-14 md:h-16 rounded overflow-hidden transition-all duration-300 border flex-shrink-0 cursor-pointer ${idx === currentIndex ? 'border-primary scale-110 ring-2 ring-primary/20' : 'border-white/10 opacity-50 hover:opacity-100 hover:scale-105'}`} 
             >
-              <img src={getOptimizedImageUrl(movie.cover, 100)} alt={movie.title} className="w-full h-full object-cover" />
+              <img src={getOptimizedImageUrl(movie.cover, 100)} onError={(e) => { (e.target as HTMLImageElement).src = DEFAULT_FAVICON_FALLBACK; }} alt={movie.title} className="w-full h-full object-cover" />
               {idx === currentIndex && (
                 <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
                   <div className="w-4 h-4 rounded-full bg-primary flex items-center justify-center"><i className="fa-solid fa-play text-[8px] text-black"></i></div>
@@ -160,28 +145,22 @@ const Hero: React.FC<{ movies: MovieResult[], onPlay: (m: MovieResult) => void }
     </div>
   );
 };
-
 const CategoryRow: React.FC<{ data: CategoryData, onMovieClick: (m: MovieResult) => void, onSeeMore?: () => void }> = ({ data, onMovieClick, onSeeMore }) => {
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const [showLeftArrow, setShowLeftArrow] = React.useState(false);
   const [showRightArrow, setShowRightArrow] = React.useState(true);
   const [isHovered, setIsHovered] = React.useState(false);
-  
   const [movies, setMovies] = React.useState(data.movies);
   const [page, setPage] = React.useState(1);
   const [isLoadingMore, setIsLoadingMore] = React.useState(false);
   const [hasMore, setHasMore] = React.useState(true);
-
   React.useEffect(() => {
     setMovies(data.movies);
     setPage(1);
     setHasMore(true);
   }, [data.movies]);
-
   if (!movies || movies.length === 0) return <CategorySkeleton />;
-
   const gridLoadMoreRef = React.useRef<HTMLDivElement>(null);
-
   const loadMore = React.useCallback(async () => {
     if (isLoadingMore || !hasMore) return;
     setIsLoadingMore(true);
@@ -207,7 +186,6 @@ const CategoryRow: React.FC<{ data: CategoryData, onMovieClick: (m: MovieResult)
       setIsLoadingMore(false);
     }
   }, [isLoadingMore, hasMore, page, data.title, movies]);
-
   React.useEffect(() => {
     const observer = new IntersectionObserver((entries) => {
       if (entries[0].isIntersecting && hasMore && !isLoadingMore) {
@@ -217,29 +195,24 @@ const CategoryRow: React.FC<{ data: CategoryData, onMovieClick: (m: MovieResult)
     if (gridLoadMoreRef.current) observer.observe(gridLoadMoreRef.current);
     return () => observer.disconnect();
   }, [hasMore, isLoadingMore, loadMore]);
-
   const checkScroll = () => {
     if (scrollRef.current) {
       const { scrollLeft, scrollWidth, clientWidth } = scrollRef.current;
       setShowLeftArrow(scrollLeft > 0);
       setShowRightArrow(scrollLeft < scrollWidth - clientWidth - 10);
-      
       if (scrollLeft + clientWidth >= scrollWidth - 400 && !isLoadingMore && hasMore) {
         loadMore();
       }
     }
   };
-
   const scroll = (direction: 'left' | 'right') => {
     if (scrollRef.current) {
       const scrollAmount = direction === 'left' ? -400 : 400;
       scrollRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
     }
   };
-
   React.useEffect(() => {
     if (isHovered || movies.length <= 4 || movies.length > 15) return;
-    
     const interval = setInterval(() => {
       if (scrollRef.current) {
         const { scrollLeft, scrollWidth, clientWidth } = scrollRef.current;
@@ -250,10 +223,8 @@ const CategoryRow: React.FC<{ data: CategoryData, onMovieClick: (m: MovieResult)
         }
       }
     }, 4000);
-    
     return () => clearInterval(interval);
   }, [isHovered, movies.length]);
-
   return (
     <div className="my-8 px-[4%]" onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)}>
       <div className="flex items-center justify-between mb-4">
@@ -321,6 +292,23 @@ const CategoryRow: React.FC<{ data: CategoryData, onMovieClick: (m: MovieResult)
     </div>
   );
 };
+const GENRES = [
+  { id: 'All', name: 'All Genres', icon: 'fa-border-all' },
+  { id: 'Action', name: 'Action', icon: 'fa-fire-flame-curved' },
+  { id: 'Adventure', name: 'Adventure', icon: 'fa-compass' },
+  { id: 'Comedy', name: 'Comedy', icon: 'fa-face-laugh-beam' },
+  { id: 'Drama', name: 'Drama', icon: 'fa-masks-theater' },
+  { id: 'Sci-Fi', name: 'Sci-Fi', icon: 'fa-rocket' },
+  { id: 'Romance', name: 'Romance', icon: 'fa-heart' },
+  { id: 'Horror', name: 'Horror', icon: 'fa-ghost' },
+  { id: 'Anime', name: 'Anime', icon: 'fa-dragon' },
+  { id: 'K-Drama', name: 'K-Drama', icon: 'fa-star' },
+  { id: 'Animation', name: 'Animation', icon: 'fa-film' },
+  { id: 'Thriller', name: 'Thriller', icon: 'fa-skull' },
+  { id: 'Crime', name: 'Crime', icon: 'fa-handcuffs' },
+  { id: 'Fantasy', name: 'Fantasy', icon: 'fa-wand-magic-sparkles' },
+  { id: 'Documentary', name: 'Documentary', icon: 'fa-video' },
+];
 
 const HomePage: React.FC<{
   heroMovies: MovieResult[];
@@ -329,6 +317,81 @@ const HomePage: React.FC<{
   onToplistClick: (category?: string) => void;
   loading: boolean;
 }> = ({ heroMovies, categoriesData, onMovieClick, onToplistClick, loading }) => {
+  const [selectedGenre, setSelectedGenre] = React.useState<string>('All');
+  const genreNavRef = React.useRef<HTMLDivElement>(null);
+
+  const availableGenrePills = React.useMemo(() => {
+    const basePillIds = new Set(GENRES.map(g => g.id.toLowerCase()));
+    const extraPills: Array<{ id: string; name: string; icon: string }> = [];
+
+    categoriesData.forEach(cat => {
+      const cleanTitle = cat.title.replace(/Movies|Series|TV|List|Top/gi, '').trim();
+      if (cleanTitle && cleanTitle.length > 2 && !basePillIds.has(cleanTitle.toLowerCase()) && !basePillIds.has(cat.title.toLowerCase())) {
+        basePillIds.add(cleanTitle.toLowerCase());
+        extraPills.push({
+          id: cleanTitle,
+          name: cat.title,
+          icon: 'fa-tag'
+        });
+      }
+    });
+
+    return [...GENRES, ...extraPills];
+  }, [categoriesData]);
+
+  const filteredCategories = React.useMemo(() => {
+    if (selectedGenre === 'All') return categoriesData;
+
+    const target = selectedGenre.toLowerCase();
+
+    const filtered = categoriesData.map(cat => {
+      const catTitleMatches = cat.title.toLowerCase().includes(target);
+      if (catTitleMatches) {
+        return cat;
+      }
+
+      const matchingMovies = cat.movies.filter(m => {
+        const g = (m.genre || '').toLowerCase();
+        const t = (m.type || '').toLowerCase();
+        const title = (m.title || '').toLowerCase();
+        return g.includes(target) || t.includes(target) || title.includes(target);
+      });
+
+      if (matchingMovies.length > 0) {
+        return { ...cat, movies: matchingMovies };
+      }
+      return null;
+    }).filter(Boolean) as CategoryData[];
+
+    if (filtered.length > 0) return filtered;
+
+    const allMovies: MovieResult[] = [];
+    const seenIds = new Set<string>();
+
+    [...heroMovies, ...categoriesData.flatMap(c => c.movies)].forEach(m => {
+      const id = m.subjectId || m.detailPath || m.title;
+      if (id && !seenIds.has(id)) {
+        const g = (m.genre || '').toLowerCase();
+        const t = (m.type || '').toLowerCase();
+        const title = (m.title || '').toLowerCase();
+        if (g.includes(target) || t.includes(target) || title.includes(target)) {
+          seenIds.add(id);
+          allMovies.push(m);
+        }
+      }
+    });
+
+    if (allMovies.length > 0) {
+      return [{
+        title: `${selectedGenre} Titles`,
+        query: selectedGenre,
+        movies: allMovies
+      }];
+    }
+
+    return [];
+  }, [selectedGenre, categoriesData, heroMovies]);
+
   if (loading) {
     return (
       <div className="animate-fade-in">
@@ -343,13 +406,99 @@ const HomePage: React.FC<{
       <Suspense fallback={<HeroSkeleton />}>
         <Hero movies={heroMovies} onPlay={onMovieClick} />
       </Suspense>
-      {categoriesData.map((cat, i) => (
-        <Suspense key={i} fallback={<CategorySkeleton />}>
-          <CategoryRow data={cat} onMovieClick={onMovieClick} onSeeMore={() => onToplistClick(cat.title)} />
-        </Suspense>
-      ))}
+
+      {/* Genre Navigation Bar */}
+      <div ref={genreNavRef} className="sticky top-[58px] z-30 bg-[#0a0a15]/90 backdrop-blur-xl border-y border-white/10 py-3.5 px-[4%] shadow-2xl transition-all">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <span className="w-1.5 h-4 bg-primary rounded-full"></span>
+              <h3 className="text-xs md:text-sm font-black uppercase tracking-wider text-gray-300">Browse by Genre</h3>
+            </div>
+            {selectedGenre !== 'All' && (
+              <button
+                onClick={() => setSelectedGenre('All')}
+                className="text-xs text-primary hover:text-white font-bold flex items-center gap-1.5 transition-colors bg-primary/10 hover:bg-primary/20 px-2.5 py-1 rounded-full border border-primary/30"
+              >
+                <span>Reset filter</span>
+                <i className="fa-solid fa-xmark text-xs"></i>
+              </button>
+            )}
+          </div>
+
+          <div className="relative group">
+            <div className="flex items-center gap-2 md:gap-3 overflow-x-auto scrollbar-hide py-1 scroll-smooth">
+              {availableGenrePills.map((genre) => {
+                const isActive = selectedGenre.toLowerCase() === genre.id.toLowerCase();
+                return (
+                  <button
+                    key={genre.id}
+                    onClick={() => {
+                      setSelectedGenre(genre.id);
+                      if (genreNavRef.current) {
+                        const yOffset = -70;
+                        const element = genreNavRef.current;
+                        const y = element.getBoundingClientRect().top + window.pageYOffset + yOffset;
+                        window.scrollTo({ top: y, behavior: 'smooth' });
+                      }
+                    }}
+                    className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs md:text-sm font-bold whitespace-nowrap transition-all duration-300 cursor-pointer flex-shrink-0 ${
+                      isActive
+                        ? 'bg-primary text-black shadow-[0_0_20px_rgba(0,229,255,0.4)] scale-105'
+                        : 'bg-white/5 hover:bg-white/15 text-gray-300 border border-white/10 hover:border-white/30 hover:text-white'
+                    }`}
+                  >
+                    <i className={`fa-solid ${genre.icon} text-xs ${isActive ? 'text-black' : 'text-primary'}`}></i>
+                    <span>{genre.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Content Categories or Empty State */}
+      <div className="mt-4">
+        {selectedGenre !== 'All' && (
+          <div className="px-[4%] max-w-7xl mx-auto my-4 flex items-center justify-between bg-primary/10 border border-primary/20 rounded-xl p-3">
+            <div className="flex items-center gap-2 text-sm text-white font-medium">
+              <span className="text-gray-400">Filtering:</span>
+              <span className="font-bold text-primary">{selectedGenre}</span>
+              <span className="text-xs text-gray-400">({filteredCategories.reduce((acc, c) => acc + c.movies.length, 0)} items found)</span>
+            </div>
+            <button
+              onClick={() => setSelectedGenre('All')}
+              className="text-xs text-gray-400 hover:text-white underline font-bold"
+            >
+              Show all
+            </button>
+          </div>
+        )}
+
+        {filteredCategories.length > 0 ? (
+          filteredCategories.map((cat, i) => (
+            <Suspense key={`${selectedGenre}-${i}-${cat.title}`} fallback={<CategorySkeleton />}>
+              <CategoryRow data={cat} onMovieClick={onMovieClick} onSeeMore={() => onToplistClick(cat.title)} />
+            </Suspense>
+          ))
+        ) : (
+          <div className="my-16 px-[4%] text-center max-w-md mx-auto py-12 bg-white/5 rounded-2xl border border-white/10">
+            <div className="w-16 h-16 rounded-full bg-primary/10 border border-primary/20 text-primary flex items-center justify-center mx-auto mb-4 text-2xl">
+              <i className="fa-solid fa-film"></i>
+            </div>
+            <h3 className="text-lg font-bold text-white mb-2">No Content Found</h3>
+            <p className="text-gray-400 text-sm mb-6">We couldn't find any titles under "{selectedGenre}". Try selecting a different genre or browse all categories.</p>
+            <button
+              onClick={() => setSelectedGenre('All')}
+              className="bg-primary text-black font-bold px-6 py-2.5 rounded-xl hover:bg-white transition-all shadow-[0_0_15px_rgba(0,229,255,0.3)] text-sm"
+            >
+              Browse All Genres
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
-
 export default HomePage;

@@ -1,16 +1,9 @@
-/**
- * SL-FLIX Season Selector Component
- * Netflix-style season selector with real data, caching, and smooth animations
- * Designed for integration inside video player overlay
- */
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { LazyLoadImage } from 'react-lazy-load-image-component';
 import 'react-lazy-load-image-component/src/effects/blur.css';
 import { Season, MovieResult } from '../types';
 import { cacheService } from '../services/cache';
 import { getOptimizedImageUrl } from '../utils/image';
-
 interface SeasonSelectorProps {
   movie: MovieResult;
   currentSeason: number;
@@ -19,8 +12,6 @@ interface SeasonSelectorProps {
   onEpisodeSelect: (season: number, episode: number) => void;
   className?: string;
 }
-
-// Loading skeleton for seasons
 const SeasonSkeleton: React.FC = () => (
   <div className="flex gap-2 animate-pulse">
     {[1, 2, 3].map(i => (
@@ -28,8 +19,6 @@ const SeasonSkeleton: React.FC = () => (
     ))}
   </div>
 );
-
-// Episode skeleton
 const EpisodeSkeleton: React.FC = () => (
   <div className="flex gap-3 p-3 animate-pulse">
     <div className="w-16 h-12 bg-white/10 rounded-lg flex-shrink-0" />
@@ -39,7 +28,6 @@ const EpisodeSkeleton: React.FC = () => (
     </div>
   </div>
 );
-
 const SeasonSelector: React.FC<SeasonSelectorProps> = ({
   movie,
   currentSeason,
@@ -55,7 +43,6 @@ const SeasonSelector: React.FC<SeasonSelectorProps> = ({
   const [isEpisodesLoading, setIsEpisodesLoading] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [watchedProgress, setWatchedProgress] = useState<Record<string, any>>({});
-
   const loadProgress = () => {
     if (movie.subjectId || movie.detailPath) {
       const key = `slflix_progress_${movie.subjectId || movie.detailPath}`;
@@ -67,25 +54,19 @@ const SeasonSelector: React.FC<SeasonSelectorProps> = ({
       }
     }
   };
-
   useEffect(() => {
     loadProgress();
     window.addEventListener('slflix_progress_update', loadProgress);
     return () => window.removeEventListener('slflix_progress_update', loadProgress);
   }, [movie.subjectId, movie.detailPath]);
-
-  // Initialize seasons from movie data
   useEffect(() => {
     if (movie.seasons && movie.seasons.length > 0) {
       setSeasons(movie.seasons);
-      // Expand current season by default
       if (!expandedSeason || !movie.seasons.find(s => s.seasonNumber === expandedSeason)) {
         setExpandedSeason(movie.seasons[0].seasonNumber);
       }
     }
   }, [movie.seasons]);
-
-  // Generate episodes for expanded season
   useEffect(() => {
     const seasonData = seasons.find(s => s.seasonNumber === expandedSeason);
     if (seasonData) {
@@ -93,39 +74,30 @@ const SeasonSelector: React.FC<SeasonSelectorProps> = ({
       setEpisodes(Array.from({ length: epCount }, (_, i) => i + 1));
     }
   }, [expandedSeason, seasons]);
-
-  // Handle season click - expand/collapse
   const handleSeasonClick = useCallback((seasonNumber: number) => {
     setExpandedSeason(prev => prev === seasonNumber ? prev : seasonNumber);
     onSeasonChange(seasonNumber);
   }, [onSeasonChange]);
-
-  // Handle episode selection
   const handleEpisodeClick = useCallback((episodeNumber: number) => {
     onEpisodeSelect(expandedSeason, episodeNumber);
   }, [expandedSeason, onEpisodeSelect]);
-
-  // Close on escape
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        // Bubble up to close parent overlay
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
-
   if (!seasons || seasons.length === 0) {
     return null;
   }
-
   return (
     <div 
       ref={containerRef}
       className={`bg-[#1a1a2e] rounded-xl overflow-hidden ${className}`}
     >
-      {/* Season Tabs */}
+      {}
       <div className="p-4 border-b border-white/10">
         <h3 className="text-white font-semibold text-sm mb-3 flex items-center gap-2">
           <svg className="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -133,7 +105,6 @@ const SeasonSelector: React.FC<SeasonSelectorProps> = ({
           </svg>
           Seasons
         </h3>
-        
         {isLoading ? (
           <SeasonSkeleton />
         ) : (
@@ -159,8 +130,7 @@ const SeasonSelector: React.FC<SeasonSelectorProps> = ({
           </div>
         )}
       </div>
-
-      {/* Episodes List */}
+      {}
       <div className="max-h-80 overflow-y-auto scrollbar-hide">
         {isEpisodesLoading ? (
           <div className="p-4 space-y-2">
@@ -174,7 +144,6 @@ const SeasonSelector: React.FC<SeasonSelectorProps> = ({
               const epKey = `S${expandedSeason}E${episodeNumber}`;
               const progressData = watchedProgress[epKey];
               const isWatched = progressData?.completed || false;
-              
               return (
                 <EpisodeItem
                   key={episodeNumber}
@@ -189,8 +158,7 @@ const SeasonSelector: React.FC<SeasonSelectorProps> = ({
           </div>
         )}
       </div>
-
-      {/* Quick Navigation */}
+      {}
       {seasons.length > 1 && (
         <div className="p-3 border-t border-white/10 flex justify-between">
           <button
@@ -222,8 +190,6 @@ const SeasonSelector: React.FC<SeasonSelectorProps> = ({
     </div>
   );
 };
-
-// Individual Episode Item Component
 interface EpisodeItemProps {
   seasonNumber: number;
   episodeNumber: number;
@@ -231,7 +197,6 @@ interface EpisodeItemProps {
   isWatched?: boolean;
   onClick: () => void;
 }
-
 const EpisodeItem: React.FC<EpisodeItemProps> = ({
   seasonNumber,
   episodeNumber,
@@ -242,17 +207,12 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
   const [isHovered, setIsHovered] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
   const itemRef = useRef<HTMLButtonElement>(null);
-
-  // Smooth scroll to active episode
   useEffect(() => {
     if (isActive && itemRef.current) {
       itemRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
   }, [isActive]);
-
-  // Generate thumbnail URL (placeholder for now - would come from API)
   const thumbnailUrl = `https://picsum.photos/seed/s${seasonNumber}e${episodeNumber}/320/180`;
-
   return (
     <button
       ref={itemRef}
@@ -271,7 +231,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
         }
       `}
     >
-      {/* Episode Thumbnail */}
+      {}
       <div className="relative w-20 h-12 rounded-lg overflow-hidden flex-shrink-0 bg-white/10">
         <LazyLoadImage
           src={getOptimizedImageUrl(thumbnailUrl, 150)}
@@ -284,8 +244,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
             target.style.display = 'none';
           }}
         />
-        
-        {/* Play Overlay */}
+        {}
         <div className={`
           absolute inset-0 flex items-center justify-center bg-black/40
           transition-opacity duration-200
@@ -301,8 +260,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
           </div>
         </div>
       </div>
-
-      {/* Episode Info */}
+      {}
       <div className="flex-1 text-left min-w-0">
         <div className={`
           text-sm font-medium truncate
@@ -327,8 +285,7 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
           )}
         </div>
       </div>
-
-      {/* Active Indicator */}
+      {}
       <div className="flex items-center">
         {isActive ? (
           <div className="w-2 h-2 rounded-full bg-primary animate-pulse shadow-[0_0_5px_rgba(0,229,255,0.8)]" />
@@ -339,8 +296,5 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
     </button>
   );
 };
-
-// Export for lazy loading
 export { EpisodeItem };
-export default SeasonSelector;
-
+export default SeasonSelector;

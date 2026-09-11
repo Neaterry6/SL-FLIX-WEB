@@ -1,10 +1,8 @@
 import React from 'react';
-
 interface LoaderProps {
     type?: 'rect' | 'triangle' | 'circle';
     inline?: boolean;
 }
-
 const Loader: React.FC<LoaderProps> = ({ type = 'rect', inline = false }) => {
   return (
     <div className={`flex items-center justify-center ${inline ? 'p-2' : 'p-20'}`}>
@@ -18,5 +16,4 @@ const Loader: React.FC<LoaderProps> = ({ type = 'rect', inline = false }) => {
     </div>
   );
 };
-
 export default Loader;

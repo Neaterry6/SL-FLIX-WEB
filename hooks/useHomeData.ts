@@ -1,26 +1,21 @@
 import { useState, useEffect, useRef } from 'react';
 import { ApiService } from '../services/api';
 import { CategoryData, MovieResult } from '../types';
-
 interface HomeData {
   categories: CategoryData[];
   hero: MovieResult[];
 }
-
 export const useHomeData = () => {
   const [data, setData] = useState<HomeData>({ categories: [], hero: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(false);
-
   useEffect(() => {
     mountedRef.current = true;
-    
     const loadHomeData = async () => {
       try {
         setLoading(true);
         setError(null);
-        
         const result = await ApiService.getHomeData();
         if (mountedRef.current) {
           setData(result);
@@ -34,13 +29,10 @@ export const useHomeData = () => {
         }
       }
     };
-    
     loadHomeData();
-
     return () => {
       mountedRef.current = false;
     };
   }, []);
-
   return { data, loading, error };
 };

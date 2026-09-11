@@ -1,12 +1,5 @@
-/**
- * SL-FLIX Subtitle Manager Component
- * Handles Netflix-style captions with auto-language detection,
- * dynamic track injection, and self-healing capabilities
- */
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Subtitle } from '../types';
-
 interface SubtitleManagerProps {
   videoElement: HTMLVideoElement | null;
   subtitles: Subtitle[];
@@ -14,8 +7,6 @@ interface SubtitleManagerProps {
   className?: string;
   activeSubtitle?: number;
 }
-
-// Language code to display name mapping
 const LANGUAGE_NAMES: Record<string, string> = {
   'en': 'English',
   'es': 'Español',
@@ -61,12 +52,9 @@ const LANGUAGE_NAMES: Record<string, string> = {
   'lv': 'Latviešu',
   'et': 'Eesti',
 };
-
 export const getLanguageName = (code: string): string => {
   return LANGUAGE_NAMES[code?.toLowerCase()] || code || 'Unknown';
 };
-
-// Detect user's preferred language
 export const detectUserLanguage = (): string => {
   try {
     const browserLang = navigator.language || 'en';
@@ -76,35 +64,23 @@ export const detectUserLanguage = (): string => {
     return 'en';
   }
 };
-
-// Find best matching subtitle based on user language
 export const findBestSubtitle = (subtitles: Subtitle[], userLang?: string): number => {
   if (!subtitles || subtitles.length === 0) return -1;
-  
   const lang = userLang || detectUserLanguage();
-  
-  // First priority: exact match
   const exactMatch = subtitles.findIndex(
     sub => sub.lang?.toLowerCase() === lang || sub.language?.toLowerCase() === lang
   );
   if (exactMatch >= 0) return exactMatch;
-  
-  // Second priority: language starts with user's language
   const startsWithMatch = subtitles.findIndex(
     sub => sub.lang?.toLowerCase().startsWith(lang) || sub.language?.toLowerCase().startsWith(lang)
   );
   if (startsWithMatch >= 0) return startsWithMatch;
-  
-  // Third priority: English
   const englishMatch = subtitles.findIndex(
     sub => sub.lang?.toLowerCase() === 'en' || sub.language?.toLowerCase() === 'english'
   );
   if (englishMatch >= 0) return englishMatch;
-  
-  // Default: first available
   return 0;
 };
-
 const SubtitleManager: React.FC<SubtitleManagerProps> = ({
   videoElement,
   subtitles = [],
@@ -114,7 +90,6 @@ const SubtitleManager: React.FC<SubtitleManagerProps> = ({
 }) => {
   const [internalActiveSubtitle, setInternalActiveSubtitle] = useState<number>(-1);
   const activeSubtitle = externalActiveSubtitle !== undefined ? externalActiveSubtitle : internalActiveSubtitle;
-  
   const setActiveSubtitle = (index: number) => {
       setInternalActiveSubtitle(index);
       onSubtitleChange?.(index);
@@ -125,8 +100,6 @@ const SubtitleManager: React.FC<SubtitleManagerProps> = ({
   const [tracksInjected, setTracksInjected] = useState(false);
   const retryCountRef = useRef(0);
   const maxRetries = 3;
-
-  // Auto-select best subtitle on mount
   useEffect(() => {
     if (subtitles.length > 0 && activeSubtitle === -1) {
       const bestSubtitle = findBestSubtitle(subtitles);
@@ -135,59 +108,42 @@ const SubtitleManager: React.FC<SubtitleManagerProps> = ({
       }
     }
   }, [subtitles]);
-
-  // Inject tracks when video element is available
   useEffect(() => {
     if (!videoElement || subtitles.length === 0) return;
-
     const injectTracks = () => {
       setIsLoading(true);
       setError(null);
-
       try {
-        // Remove existing tracks first
         const existingTracks = videoElement.querySelectorAll('track');
         existingTracks.forEach(track => track.remove());
-
-        // Add new tracks
         subtitles.forEach((sub, index) => {
           const track = document.createElement('track');
           track.kind = 'subtitles';
           track.label = sub.name || getLanguageName(sub.lang || sub.language || 'en');
           track.srclang = sub.lang || sub.language || 'en';
           track.id = index.toString();
-          
           if (sub.url) {
             track.src = sub.url;
           } else {
-            // Dummy empty VTT to prevent fetching current page
             const blob = new Blob(['WEBVTT\n\n'], { type: 'text/vtt' });
             track.src = URL.createObjectURL(blob);
           }
-          
           track.default = index === activeSubtitle;
-          
-          // Handle track load error
           track.onerror = () => {
-            if (!sub.url) return; // Ignore errors for dummy tracks
+            if (!sub.url) return; 
             console.warn(`[SubtitleManager] Failed to load subtitle: ${sub.url}`);
             retryCountRef.current++;
-            
             if (retryCountRef.current < maxRetries) {
-              // Retry after delay
               setTimeout(injectTracks, 1000 * retryCountRef.current);
             } else {
               setError('Failed to load subtitle');
               setIsLoading(false);
             }
           };
-
           track.onload = () => {
             setTracksInjected(true);
             setIsLoading(false);
             retryCountRef.current = 0;
-            
-            // Apply active state
             if (index === activeSubtitle && videoElement.textTracks) {
               for (let i = 0; i < videoElement.textTracks.length; i++) {
                 if (videoElement.textTracks[i].id === index.toString()) {
@@ -196,7 +152,6 @@ const SubtitleManager: React.FC<SubtitleManagerProps> = ({
               }
             }
           };
-
           videoElement.appendChild(track);
         });
       } catch (err) {
@@ -205,64 +160,45 @@ const SubtitleManager: React.FC<SubtitleManagerProps> = ({
         setIsLoading(false);
       }
     };
-
-    // Wait for video to be ready
     if (videoElement.readyState >= 1) {
       injectTracks();
     } else {
       videoElement.addEventListener('loadedmetadata', injectTracks, { once: true });
     }
-
     return () => {
-      // Cleanup tracks on unmount
       const existingTracks = videoElement.querySelectorAll('track');
       existingTracks.forEach(track => track.remove());
     };
   }, [videoElement, subtitles]);
-
-  // Update track modes when active subtitle changes
   useEffect(() => {
     if (!videoElement || !tracksInjected) return;
-
     const tracks = videoElement.textTracks;
     if (!tracks) return;
-
     for (let i = 0; i < tracks.length; i++) {
       tracks[i].mode = (tracks[i].id === activeSubtitle.toString()) ? 'showing' : 'hidden';
     }
-
     onSubtitleChange?.(activeSubtitle);
   }, [activeSubtitle, videoElement, tracksInjected, onSubtitleChange]);
-
-
-
-  // Handle subtitle selection
   const handleSubtitleSelect = useCallback((index: number) => {
     setActiveSubtitle(index);
     setIsOpen(false);
     setError(null);
     retryCountRef.current = 0;
   }, []);
-
-  // Handle toggle
   const handleToggle = useCallback(() => {
     setIsOpen(prev => !prev);
   }, []);
-
-  // Get display name for active subtitle
   const getActiveSubtitleName = (): string => {
     if (activeSubtitle < 0) return 'Off';
     const sub = subtitles[activeSubtitle];
     return sub?.name || getLanguageName(sub?.lang || sub?.language || 'en');
   };
-
   if (subtitles.length === 0) {
     return null;
   }
-
   return (
     <div className={`relative ${className}`}>
-      {/* Subtitle Toggle Button */}
+      {}
       <button
         onClick={handleToggle}
         className={`
@@ -290,18 +226,16 @@ const SubtitleManager: React.FC<SubtitleManagerProps> = ({
         </svg>
         <span>{getActiveSubtitleName()}</span>
       </button>
-
-      {/* Subtitle Selection Dropdown */}
+      {}
       {isOpen && (
         <div className="absolute bottom-full mb-2 right-0 w-64 bg-[#1a1a2e] border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50 animate-fade-in">
-          {/* Header */}
+          {}
           <div className="px-4 py-3 border-b border-white/10">
             <h3 className="text-white font-semibold text-sm">Subtitles</h3>
           </div>
-
-          {/* Subtitle Options */}
+          {}
           <div className="max-h-64 overflow-y-auto">
-            {/* Off Option */}
+            {}
             <button
               onClick={() => handleSubtitleSelect(-1)}
               className={`
@@ -317,8 +251,7 @@ const SubtitleManager: React.FC<SubtitleManagerProps> = ({
                 </svg>
               )}
             </button>
-
-            {/* Available Subtitles */}
+            {}
             {subtitles.map((sub, index) => (
               <button
                 key={index}
@@ -343,15 +276,13 @@ const SubtitleManager: React.FC<SubtitleManagerProps> = ({
               </button>
             ))}
           </div>
-
-          {/* Error Message */}
+          {}
           {error && (
             <div className="px-4 py-2 bg-red-500/20 text-red-400 text-xs">
               {error}
             </div>
           )}
-
-          {/* Loading State */}
+          {}
           {isLoading && (
             <div className="px-4 py-2 bg-primary/20 text-primary text-xs flex items-center gap-2">
               <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -366,8 +297,6 @@ const SubtitleManager: React.FC<SubtitleManagerProps> = ({
     </div>
   );
 };
-
-// Export helper component for player integration
 export const SubtitleToggle: React.FC<{
   isActive: boolean;
   onClick: () => void;
@@ -391,6 +320,4 @@ export const SubtitleToggle: React.FC<{
     {label && <span className="ml-1 text-xs">{label}</span>}
   </button>
 );
-
-export default SubtitleManager;
-
+export default SubtitleManager;

@@ -4,14 +4,11 @@ import { WebtoonItem, WebtoonDetail } from '../types';
 import { LazyLoadImage } from 'react-lazy-load-image-component';
 import { ArrowLeft, Search, X, ChevronRight, TrendingUp, BookOpen, Clock, Tag } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-
 interface WebtoonViewProps {
   onBack: () => void;
   onRead: (url: string, title: string) => void;
 }
-
 const WebtoonView: React.FC<WebtoonViewProps> = ({ onBack, onRead }) => {
-// ... existing state ...
   const [trending, setTrending] = useState<WebtoonItem[]>([]);
   const [results, setResults] = useState<WebtoonItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -19,7 +16,6 @@ const WebtoonView: React.FC<WebtoonViewProps> = ({ onBack, onRead }) => {
   const [selectedWebtoon, setSelectedWebtoon] = useState<WebtoonDetail | null>(null);
   const [showDetail, setShowDetail] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
-
   useEffect(() => {
     const fetchHome = async () => {
       setLoading(true);
@@ -29,7 +25,6 @@ const WebtoonView: React.FC<WebtoonViewProps> = ({ onBack, onRead }) => {
     };
     fetchHome();
   }, []);
-
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!query) return;
@@ -38,7 +33,6 @@ const WebtoonView: React.FC<WebtoonViewProps> = ({ onBack, onRead }) => {
     setResults(data.results || []);
     setLoading(false);
   };
-
   const handleWebtoonClick = async (item: WebtoonItem) => {
     setDetailLoading(true);
     setShowDetail(true);
@@ -46,7 +40,6 @@ const WebtoonView: React.FC<WebtoonViewProps> = ({ onBack, onRead }) => {
     setSelectedWebtoon(detail);
     setDetailLoading(false);
   };
-
   return (
     <div className="p-4 md:p-8 pt-8 md:pt-12 animate-fade-in min-h-screen bg-[#050510]">
       <div className="max-w-7xl mx-auto">
@@ -71,7 +64,6 @@ const WebtoonView: React.FC<WebtoonViewProps> = ({ onBack, onRead }) => {
               </p>
             </div>
           </div>
-
           <form onSubmit={handleSearch} className="relative flex-1 max-w-md group">
             <input 
               type="text" 
@@ -88,7 +80,6 @@ const WebtoonView: React.FC<WebtoonViewProps> = ({ onBack, onRead }) => {
             )}
           </form>
         </div>
-
         {loading ? (
           <div className="flex flex-col items-center justify-center py-40">
             <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4"></div>
@@ -128,7 +119,6 @@ const WebtoonView: React.FC<WebtoonViewProps> = ({ onBack, onRead }) => {
           </div>
         )}
       </div>
-
       <AnimatePresence>
         {showDetail && (
           <motion.div 
@@ -149,7 +139,6 @@ const WebtoonView: React.FC<WebtoonViewProps> = ({ onBack, onRead }) => {
               >
                 <X size={20} />
               </button>
-              
               {detailLoading ? (
                 <div className="flex-1 flex flex-col items-center justify-center py-40">
                   <div className="w-10 h-10 border-2 border-primary border-t-transparent rounded-full animate-spin mb-4"></div>
@@ -169,7 +158,6 @@ const WebtoonView: React.FC<WebtoonViewProps> = ({ onBack, onRead }) => {
                         {selectedWebtoon.authors.join(', ')}
                       </p>
                     </div>
-
                     <div className="flex flex-wrap gap-2 mb-8">
                       {selectedWebtoon.tags.map(tag => (
                         <span key={tag} className="bg-white/5 px-4 py-1.5 rounded-xl text-[10px] font-bold text-gray-400 border border-white/10 flex items-center gap-2 uppercase tracking-widest">
@@ -182,11 +170,9 @@ const WebtoonView: React.FC<WebtoonViewProps> = ({ onBack, onRead }) => {
                         {selectedWebtoon.ranking}
                       </span>
                     </div>
-
                     <div className="relative mb-12">
                        <p className="text-gray-400 text-sm leading-relaxed">{selectedWebtoon.summary}</p>
                     </div>
-                    
                     <div className="space-y-4">
                       <div className="flex items-center justify-between mb-6">
                         <h4 className="text-white font-black text-xl flex items-center gap-2 italic">
@@ -236,7 +222,6 @@ const WebtoonView: React.FC<WebtoonViewProps> = ({ onBack, onRead }) => {
     </div>
   );
 };
-
 const WebtoonCard = ({ item, onClick, i }: { item: WebtoonItem, onClick: () => void, i: number }) => (
   <motion.div 
     initial={{ opacity: 0, scale: 0.9 }}
@@ -252,16 +237,13 @@ const WebtoonCard = ({ item, onClick, i }: { item: WebtoonItem, onClick: () => v
         effect="blur" referrerPolicy="no-referrer" 
         className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" 
       />
-      
-      {/* Genre Badge */}
+      {}
       <div className="absolute top-4 left-4 z-20">
         <span className="bg-black/60 backdrop-blur-md text-primary text-[9px] font-black px-3 py-1.5 rounded-xl border border-white/10 uppercase tracking-widest shadow-xl">
           {item.genre}
         </span>
       </div>
-
       <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent opacity-80 group-hover:opacity-100 transition-opacity"></div>
-      
       <div className="absolute bottom-0 left-0 right-0 p-6 translate-y-2 group-hover:translate-y-0 transition-transform duration-500">
         <h4 className="text-white text-sm font-black leading-tight group-hover:text-primary transition-colors line-clamp-2">{item.title}</h4>
         {item.rank && (
@@ -273,8 +255,7 @@ const WebtoonCard = ({ item, onClick, i }: { item: WebtoonItem, onClick: () => v
           </div>
         )}
       </div>
-
-      {/* Hover Play Button Icon (Eye) */}
+      {}
       <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
         <div className="w-16 h-16 rounded-full bg-primary/20 backdrop-blur-md border border-primary/50 flex items-center justify-center text-primary scale-50 group-hover:scale-100 transition-transform duration-500">
           <BookOpen size={24} />
@@ -283,5 +264,4 @@ const WebtoonCard = ({ item, onClick, i }: { item: WebtoonItem, onClick: () => v
     </div>
   </motion.div>
 );
-
 export default WebtoonView;

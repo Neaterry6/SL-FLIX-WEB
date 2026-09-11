@@ -2,7 +2,7 @@ export interface MovieResult {
   title: string;
   cover: string;
   thumbnail: string;
-  type: string; // "Movie", "TV Series", "Live", "Short"
+  type: string; 
   subjectId: string;
   imdbRating?: string;
   releaseDate?: string;
@@ -11,17 +11,14 @@ export interface MovieResult {
   countryName?: string;
   detailPath?: string;
   hasResource?: boolean;
-
-  // Expanded Data
   cast?: CastMember[];
   recommendations?: MovieResult[];
   seasons?: Season[];
   trailerUrl?: string;
-  sourceUrl?: string; // For live sports direct link
-  rawStartTime?: number; // Timestamp for live events
+  sourceUrl?: string; 
+  rawStartTime?: number; 
   dubs?: MovieDub[];
 }
-
 export interface MovieDub {
   subjectId: string;
   lanName: string;
@@ -29,29 +26,24 @@ export interface MovieDub {
   detailPath: string;
   original: boolean;
 }
-
 export interface CastMember {
   name: string;
   character?: string;
   avatar: string;
   id?: string;
 }
-
 export interface Season {
   seasonNumber: number;
   episodeCount: number;
   episodes?: Episode[];
 }
-
 export interface Episode {
   episodeNumber: number;
   title?: string;
 }
-
 export interface SearchResponse {
   results: MovieResult[];
 }
-
 export interface Subtitle {
   lang?: string;
   language?: string;
@@ -59,25 +51,26 @@ export interface Subtitle {
   url: string;
   label?: string;
 }
-
 export interface VideoSource {
   id?: string;
-  quality: number; // e.g. 720, 1080
+  quality?: number; 
   size?: string;
   download?: string;
   direct?: string;
   stream?: string;
-  label?: string; // "HD", "FHD", "Auto"
+  label?: string; 
+  title?: string;
+  name?: string;
+  videoUrl?: string;
+  isM3u8?: boolean;
   type?: 'hls' | 'mp4' | 'dash';
 }
-
 export interface CategoryData {
   title: string;
   query: string;
   movies: MovieResult[];
   isLive?: boolean;
 }
-
 export interface LiveChannel {
   id: string;
   name: string;
@@ -87,7 +80,6 @@ export interface LiveChannel {
   category: string;
   logo?: string;
 }
-
 export interface TvChannel {
   id: string;
   name: string;
@@ -99,7 +91,6 @@ export interface TvChannel {
   group?: string;
   epg_id?: string;
 }
-
 export interface TvGuideItem {
   id: string;
   channel_id: string;
@@ -110,7 +101,6 @@ export interface TvGuideItem {
   category?: string;
   thumbnail?: string;
 }
-
 export interface LiveMatch {
   id: string;
   home_team: string;
@@ -123,7 +113,6 @@ export interface LiveMatch {
   score?: string;
   urls: Array<{ name: string; url: string }>;
 }
-
 export interface IpcResult {
   id: number | string;
   type: 'movie' | 'tv';
@@ -144,7 +133,6 @@ export interface IpcResult {
     url: string;
   }>;
 }
-
 export interface WebtoonItem {
   titleNo: string;
   title: string;
@@ -156,7 +144,6 @@ export interface WebtoonItem {
   authors?: string[];
   readCount?: number;
 }
-
 export interface WebtoonEpisode {
   episodeNo: number;
   title: string;
@@ -164,7 +151,6 @@ export interface WebtoonEpisode {
   thumbnail: string;
   url: string;
 }
-
 export interface WebtoonDetail {
   title: string;
   thumbnail: string;
@@ -175,7 +161,6 @@ export interface WebtoonDetail {
   titleNo: string;
   episodes: WebtoonEpisode[];
 }
-
 export interface WebtoonRead {
   url: string;
   title: string;
@@ -186,7 +171,6 @@ export interface WebtoonRead {
     sortOrder: number;
   }>;
 }
-
 export interface ImdbSuggestion {
   id: string;
   l: string;

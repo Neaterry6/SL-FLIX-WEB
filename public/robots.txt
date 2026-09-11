@@ -1,8 +1,17 @@
 User-agent: *
 Allow: /
 
-# Sitemap
-Sitemap: https://sl-flix.com/sitemap.xml
+User-agent: Googlebot
+Allow: /
 
-# Crawl-delay (optional)
-Crawl-delay: 1
+User-agent: Googlebot-Image
+Allow: /
+
+User-agent: Googlebot-Video
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+Sitemap: https://sl-flix.dixonomega.tech/sitemap.xml
+
