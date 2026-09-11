@@ -8,7 +8,6 @@ SL FLIX PRO is a modern, high-performance streaming and media application engine
 - **Movie & Series Catalog**: High-definition movie details, dub selection, episode guide, and interactive player overlay.
 - **Live Sports Hub**: Real-time scores, match schedules, live action feeds, and sports highlights.
 - **Webtoon & Reader**: Interactive digital webtoon collection with continuous page viewer and reading history.
-- **Development Lounge (+18)**: Interactive developer coding & diagnostic UI featuring live terminal simulation and system status.
 - **HLS Streaming Player**: Custom HTML5/HLS video player with adaptive bitrate control, quality switching, and volume controls.
 - **Floating Navigation Dock**: Responsive desktop and mobile navigation dock with smooth spring animations.
 
