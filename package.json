@@ -17,6 +17,7 @@
   "dependencies": {
     "@paper-design/shaders": "^0.0.80",
     "@paper-design/shaders-react": "^0.0.80",
+    "@resvg/resvg-js": "^2.6.2",
     "@types/react-lazy-load-image-component": "^1.6.5",
     "clsx": "^2.1.1",
     "compression": "^1.8.1",

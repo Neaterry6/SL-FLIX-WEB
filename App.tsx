@@ -777,7 +777,7 @@ const App: React.FC = () => {
             const searchParams = new URLSearchParams(window.location.search);
             const q = searchParams.get('q');
             if (playerStateRef.current.isOpen && !path.includes('/watch')) { setPlayerState(p => ({ ...p, isOpen: false })); return; }
-            if (path === '/' || path === '') { setCurrentView('home'); setSelectedMovie(null); }
+            if (path === '/' || path === '') { setCurrentView('home'); setSelectedMovie(null); resetToHomeSEO(); }
             else if (path === '/toplist') setCurrentView('toplist');
             else if (path === '/trending') setCurrentView('trending');
             else if (path === '/api-docs') setCurrentView('api-docs');
@@ -800,10 +800,37 @@ const App: React.FC = () => {
                 }
                 if (id && id.length > 5) {
                     let foundInCategories = false;
-                    for (const cat of categoriesDataRef.current) { const found = cat.movies?.find(m => m.subjectId === id); if (found) { setSelectedMovie(found); setCurrentView('details'); setLoadingDetails(true); try { const full = await ApiService.getDetails(found); setSelectedMovie(full); } catch {} setLoadingDetails(false); foundInCategories = true; break; } }
-                    if (!foundInCategories) { setLoadingDetails(true); setCurrentView('details'); const movie = await ApiService.getMovieById(id); setSelectedMovie(movie); const full = await ApiService.getDetails(movie); setSelectedMovie(full); setLoadingDetails(false); }
+                    for (const cat of categoriesDataRef.current) { 
+                        const found = cat.movies?.find(m => m.subjectId === id); 
+                        if (found) { 
+                            setSelectedMovie(found); 
+                            setCurrentView('details'); 
+                            updateMetaTags(found, false);
+                            setLoadingDetails(true); 
+                            try { 
+                                const full = await ApiService.getDetails(found); 
+                                setSelectedMovie(full); 
+                                updateMetaTags(full, false);
+                            } catch {} 
+                            setLoadingDetails(false); 
+                            foundInCategories = true; 
+                            break; 
+                        } 
+                    }
+                    if (!foundInCategories) { 
+                        setLoadingDetails(true); 
+                        setCurrentView('details'); 
+                        const movie = await ApiService.getMovieById(id); 
+                        setSelectedMovie(movie); 
+                        updateMetaTags(movie, false);
+                        const full = await ApiService.getDetails(movie); 
+                        setSelectedMovie(full); 
+                        updateMetaTags(full, false);
+                        setLoadingDetails(false); 
+                    }
                 } else {
                     setCurrentView('home');
+                    resetToHomeSEO();
                     window.history.replaceState({}, '', '/');
                 }
             }
@@ -817,7 +844,20 @@ const App: React.FC = () => {
             else if (path === '/api-docs') setCurrentView('api-docs');
             else if (path.startsWith('/search') && q) handleSearch(q);
             else if (path.startsWith('/staff/')) { const id = path.split('/').pop(); if (id) { setSelectedStaff({ id, name: "Staff Member" }); setCurrentView('staff'); } }
-            else if (path.startsWith('/movie/') || path.startsWith('/tv/')) { const id = path.split('/').pop(); if (id) { setLoadingDetails(true); setCurrentView('details'); const movie = await ApiService.getMovieById(id); setSelectedMovie(movie); const full = await ApiService.getDetails(movie); setSelectedMovie(full); setLoadingDetails(false); } }
+            else if (path.startsWith('/movie/') || path.startsWith('/tv/')) { 
+                const id = path.split('/').pop(); 
+                if (id) { 
+                    setLoadingDetails(true); 
+                    setCurrentView('details'); 
+                    const movie = await ApiService.getMovieById(id); 
+                    setSelectedMovie(movie); 
+                    updateMetaTags(movie, false);
+                    const full = await ApiService.getDetails(movie); 
+                    setSelectedMovie(full); 
+                    updateMetaTags(full, false);
+                    setLoadingDetails(false); 
+                } 
+            }
         };
         initCheck();
         return () => window.removeEventListener('popstate', handlePopState);

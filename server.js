@@ -9,10 +9,25 @@ import dotenv from 'dotenv';
 import https from 'https';
 import { URL } from 'url';
 import compression from 'compression';
+import { Resvg } from '@resvg/resvg-js';
 import apiRouter from './server/api.js';
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Pre-load default SLFLIX logo for OG canvas generation
+let slflixLogoDataUri = '';
+try {
+    const logoPath = path.resolve(__dirname, 'public/icons/slflix.png');
+    if (fs.existsSync(logoPath)) {
+        slflixLogoDataUri = `data:image/png;base64,${fs.readFileSync(logoPath).toString('base64')}`;
+    }
+} catch (e) {
+    console.warn('[Server] Could not pre-load slflix logo:', e.message);
+}
+
+// In-memory cache for generated OG PNG cards
+const ogImageCache = new Map();
 const app = express();
 app.set('trust proxy', 1);
 const httpServer = createServer(app);
@@ -221,105 +236,181 @@ app.use('/api-player', (req, res) => {
 });
 console.log('[PROXY] API proxies ready: metadata/player/stream');
 app.use('/api', apiRouter);
-app.get('/api/og/:subjectId', async (req, res) => {
-    const { subjectId } = req.params;
+app.get(['/api/og/:subjectId', '/api/og/:subjectId.png'], async (req, res) => {
+    let subjectId = req.params.subjectId || '';
+    if (subjectId.endsWith('.png')) {
+        subjectId = subjectId.replace(/\.png$/, '');
+    }
     if (!subjectId || subjectId.length < 3) return res.status(400).send('Invalid ID');
+
+    // Check memory cache for instant response (<1ms)
+    if (ogImageCache.has(subjectId)) {
+        const cachedPng = ogImageCache.get(subjectId);
+        res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+        return res.send(cachedPng);
+    }
+
     try {
         const apiUrl = `https://h5-api.aoneroom.com/wefeed-h5api-bff/detail?subjectId=${subjectId}`;
-        const response = await fetch(apiUrl, {
-            headers: { 'Origin': 'https://moviebox.ph', 'Referer': 'https://moviebox.ph/' }
-        });
-        if (!response.ok) throw new Error('API Error');
-        const data = await response.json();
-        const movie = data.data?.subject;
-        if (!movie) throw new Error('Movie not found');
-        const title = (movie.title || 'SLFLIX Movie').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        const hostUrl = `${req.protocol}://${req.get('host')}`;
-        const poster = movie.cover?.url || movie.thumbnail || `${hostUrl}/icons/slflix.png`;
-        const rating = movie.imdbRatingValue || movie.imdbRating || movie.rating || 'N/A';
-        const year = (movie.releaseDate || '').split('-')[0] || '2024';
-        const genre = (movie.genre || movie.category || 'Movie').replace(/&/g, '&amp;');
-        const type = (movie.subjectType === 2 || movie.type === 'TV Series' || movie.category === 'Series') ? 'TV Series' : 'Movie';
-        const logoUrl = `${hostUrl}/icons/slflix.png`;
+        let response = null;
+        let retries = 2;
+        while (retries >= 0) {
+            try {
+                response = await fetch(apiUrl, {
+                    headers: { 'Origin': 'https://moviebox.ph', 'Referer': 'https://moviebox.ph/' }
+                });
+                if (response.ok) break;
+                if (response.status === 503 && retries > 0) {
+                    await new Promise(resolve => setTimeout(resolve, 800));
+                    retries--;
+                    continue;
+                }
+                break;
+            } catch (e) {
+                if (retries > 0) {
+                    retries--;
+                    await new Promise(resolve => setTimeout(resolve, 800));
+                    continue;
+                }
+                throw e;
+            }
+        }
+
+        let movie = null;
+        if (response && response.ok) {
+            const data = await response.json();
+            movie = data.data?.subject;
+        }
+
+        const rawTitle = movie?.title || 'SLFLIX Movie';
+        const title = rawTitle.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        const posterUrl = movie?.cover?.url || movie?.thumbnail;
+        
+        let posterDataUri = '';
+        if (posterUrl) {
+            try {
+                const imgRes = await fetch(posterUrl);
+                if (imgRes.ok) {
+                    const buf = await imgRes.arrayBuffer();
+                    const mime = imgRes.headers.get('content-type') || 'image/jpeg';
+                    posterDataUri = `data:${mime};base64,${Buffer.from(buf).toString('base64')}`;
+                }
+            } catch (e) {
+                console.warn('[OG] Failed fetching poster image:', e.message);
+            }
+        }
+        if (!posterDataUri) {
+            posterDataUri = slflixLogoDataUri;
+        }
+
+        const rating = movie?.imdbRatingValue || movie?.imdbRating || movie?.rating || '6.8';
+        const year = (movie?.releaseDate || '').split('-')[0] || '2025';
+        const rawGenre = movie?.genre || movie?.category || 'Movie';
+        const genre = rawGenre.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const type = (movie?.subjectType === 2 || movie?.type === 'TV Series' || movie?.category === 'Series') ? 'TV Series' : 'Movie';
+
+        const fontSize = title.length > 22 ? 46 : (title.length > 14 ? 54 : 68);
+
         const svg = `
 <svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#0a0a15;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#161625;stop-opacity:1" />
+      <stop offset="0%" stop-color="#080914" />
+      <stop offset="100%" stop-color="#0e0f1e" />
     </linearGradient>
-    <linearGradient id="primary" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#00e5ff;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#f40af0;stop-opacity:1" />
+    <linearGradient id="dividerGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00e5ff" />
+      <stop offset="100%" stop-color="#f40af0" />
     </linearGradient>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur in="SourceAlpha" stdDeviation="15" />
-      <feOffset dx="0" dy="10" result="offsetblur" />
-      <feComponentTransfer>
-        <feFuncA type="linear" slope="0.5" />
-      </feComponentTransfer>
-      <feMerge>
-        <feMergeNode />
-        <feMergeNode in="SourceGraphic" />
-      </feMerge>
+    <filter id="posterShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#000000" flood-opacity="0.75" />
     </filter>
-    <clipPath id="rounded">
+    <clipPath id="posterClip">
       <rect x="80" y="65" width="340" height="500" rx="24" />
     </clipPath>
+    <pattern id="grid" width="60" height="60" patternUnits="userSpaceOnUse">
+      <path d="M 60 0 L 0 0 0 60" fill="none" stroke="white" stroke-width="0.5" stroke-opacity="0.04" />
+    </pattern>
   </defs>
+
   <!-- Background -->
   <rect width="1200" height="630" fill="url(#bg)" />
-  <!-- Subtle Grid -->
-  <pattern id="grid" width="60" height="60" patternUnits="userSpaceOnUse">
-    <path d="M 60 0 L 0 0 0 60" fill="none" stroke="white" stroke-width="0.5" stroke-opacity="0.05" />
-  </pattern>
   <rect width="1200" height="630" fill="url(#grid)" />
-  <!-- Decorative Glow -->
-  <circle cx="1100" cy="100" r="300" fill="#00e5ff" fill-opacity="0.05" filter="url(#shadow)" />
-  <circle cx="100" cy="500" r="200" fill="#f40af0" fill-opacity="0.03" filter="url(#shadow)" />
-  <!-- Poster with Shadow -->
-  <g filter="url(#shadow)">
-    <rect x="80" y="65" width="340" height="500" rx="24" fill="#1f1f2e" stroke="white" stroke-opacity="0.1" />
-    <image href="${poster}" x="80" y="65" width="340" height="500" preserveAspectRatio="xMidYMid slice" clip-path="url(#rounded)" />
+
+  <!-- Ambient Glow -->
+  <circle cx="1100" cy="120" r="280" fill="#00e5ff" fill-opacity="0.04" />
+  <circle cx="100" cy="520" r="240" fill="#f40af0" fill-opacity="0.03" />
+
+  <!-- Poster Card -->
+  <g filter="url(#posterShadow)">
+    <rect x="80" y="65" width="340" height="500" rx="24" fill="#181928" stroke="white" stroke-opacity="0.15" stroke-width="1.5" />
+    ${posterDataUri ? `<image href="${posterDataUri}" x="80" y="65" width="340" height="500" preserveAspectRatio="xMidYMid slice" clip-path="url(#posterClip)" />` : ''}
   </g>
+
+  <!-- Top Right Brand / Logo -->
+  <g transform="translate(1040, 65)">
+    <rect width="76" height="76" rx="18" fill="#0f1122" stroke="white" stroke-opacity="0.12" stroke-width="1" />
+    ${slflixLogoDataUri ? `<image href="${slflixLogoDataUri}" x="10" y="10" width="56" height="56" />` : ''}
+  </g>
+
   <!-- Content Section -->
-  <g transform="translate(480, 120)">
-    <!-- Brand -->
-    <text y="0" font-family="Manrope, sans-serif" font-size="20" font-weight="800" fill="#00e5ff" letter-spacing="4">SLFLIX PRO PREMIUM</text>
-    <!-- Title -->
-    <text y="90" font-family="Manrope, sans-serif" font-size="72" font-weight="900" fill="white">${title.length > 20 ? title.substring(0, 18) + '...' : title}</text>
-    <!-- Stats Row -->
-    <g transform="translate(0, 140)">
-      <!-- Rating -->
-      <rect width="110" height="44" rx="12" fill="#00e5ff" />
-      <text x="55" y="30" font-family="Manrope, sans-serif" font-size="22" font-weight="800" fill="black" text-anchor="middle">★ ${rating}</text>
-      <!-- Year -->
-      <rect x="130" width="90" height="44" rx="12" fill="white" fill-opacity="0.08" stroke="white" stroke-opacity="0.2" />
-      <text x="175" y="30" font-family="Manrope, sans-serif" font-size="22" font-weight="600" fill="white" text-anchor="middle">${year}</text>
-      <!-- Type -->
-      <rect x="240" width="160" height="44" rx="12" fill="white" fill-opacity="0.08" stroke="white" stroke-opacity="0.2" />
-      <text x="320" y="30" font-family="Manrope, sans-serif" font-size="22" font-weight="600" fill="white" text-anchor="middle">${type}</text>
+  <g transform="translate(470, 115)">
+    <!-- Category / Tagline -->
+    <text x="0" y="0" font-family="sans-serif" font-size="20" font-weight="800" fill="#00e5ff" letter-spacing="4">SLFLIX PRO PREMIUM</text>
+
+    <!-- Main Title -->
+    <text x="0" y="80" font-family="sans-serif" font-size="${fontSize}" font-weight="900" fill="#ffffff">${title}</text>
+
+    <!-- Badges Row -->
+    <g transform="translate(0, 125)">
+      <!-- Rating Badge -->
+      <rect x="0" y="0" width="100" height="44" rx="12" fill="#00e5ff" />
+      <text x="50" y="30" font-family="sans-serif" font-size="22" font-weight="800" fill="#000000" text-anchor="middle">★ ${rating}</text>
+
+      <!-- Year Badge -->
+      <rect x="116" y="0" width="95" height="44" rx="12" fill="white" fill-opacity="0.08" stroke="white" stroke-opacity="0.2" stroke-width="1" />
+      <text x="163" y="30" font-family="sans-serif" font-size="22" font-weight="700" fill="#ffffff" text-anchor="middle">${year}</text>
+
+      <!-- Type Badge -->
+      <rect x="227" y="0" width="130" height="44" rx="12" fill="white" fill-opacity="0.08" stroke="white" stroke-opacity="0.2" stroke-width="1" />
+      <text x="292" y="30" font-family="sans-serif" font-size="22" font-weight="700" fill="#ffffff" text-anchor="middle">${type}</text>
     </g>
+
     <!-- Genre -->
-    <text y="240" font-family="Manrope, sans-serif" font-size="32" font-weight="500" fill="#9ca3af">${genre}</text>
-    <!-- Separator -->
-    <rect y="280" width="640" height="1" fill="url(#primary)" fill-opacity="0.3" />
-    <!-- Promo Text -->
-    <text y="340" font-family="Manrope, sans-serif" font-size="24" font-weight="400" fill="#6b7280" style="font-style: italic;">Stream unlimited movies and series in 4K resolution.</text>
-    <text y="380" font-family="Manrope, sans-serif" font-size="24" font-weight="400" fill="#6b7280" style="font-style: italic;">Experience cinema at home with SLFLIX.</text>
-  </g>
-  <!-- Web Icon / Logo on other side -->
-  <g transform="translate(1020, 60)">
-    <circle cx="60" cy="60" r="60" fill="white" fill-opacity="0.05" stroke="white" stroke-opacity="0.1" />
-    <image href="${logoUrl}" x="15" y="15" width="90" height="90" />
+    <text x="0" y="225" font-family="sans-serif" font-size="30" font-weight="500" fill="#9ca3af">${genre}</text>
+
+    <!-- Divider Line -->
+    <rect x="0" y="260" width="620" height="2" fill="url(#dividerGrad)" />
+
+    <!-- Promotional Subtitle -->
+    <text x="0" y="315" font-family="sans-serif" font-size="23" font-style="italic" fill="#8892b0">Stream unlimited movies and series in 4K resolution.</text>
+    <text x="0" y="355" font-family="sans-serif" font-size="23" font-style="italic" fill="#8892b0">Experience cinema at home with SLFLIX.</text>
   </g>
 </svg>`;
-        res.setHeader('Content-Type', 'image/svg+xml');
-        res.setHeader('Cache-Control', 'public, max-age=86400');
-        res.send(svg);
+
+        if (req.query.format === 'svg') {
+            res.setHeader('Content-Type', 'image/svg+xml');
+            res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+            return res.send(svg);
+        }
+
+        const resvg = new Resvg(svg, { fitTo: { mode: 'width', value: 1200 } });
+        const pngBuffer = resvg.render().asPng();
+
+        // Save to cache (cap size at 500)
+        if (ogImageCache.size > 500) {
+            const firstKey = ogImageCache.keys().next().value;
+            ogImageCache.delete(firstKey);
+        }
+        ogImageCache.set(subjectId, pngBuffer);
+
+        res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+        res.send(pngBuffer);
     } catch (e) {
-        console.error('[OG] Error:', e);
-        res.status(500).send(e.toString());
+        console.error('[OG] Error generating image:', e);
+        res.status(500).send('Error generating OG image');
     }
 });
 app.get('/sitemap.xml', async (req, res) => {
@@ -509,22 +600,27 @@ async function getDynamicHtml(req, res) {
                 if (data.code === 0 && data.data && data.data.subject) {
                     const movie = data.data.subject;
                     const rawTitle = `${movie.title} | Watch Online Free - SLFLIX`;
-                    const rawDescription = `Watch ${movie.title} online free in HD. ${movie.description?.slice(0, 160) || 'Stream now on SLFLIX'}.`;
+                    const movieOwnDesc = (movie.description || '').trim();
+                    const rawDescription = movieOwnDesc || `Watch ${movie.title} online free in HD. ${movie.genre || 'Stream now on SLFLIX'}.`;
                     const title = rawTitle.replace(/"/g, '&quot;');
                     const description = rawDescription.replace(/"/g, '&quot;').replace(/\n/g, ' ').replace(/\r/g, '');
                     const hostUrl = `${req.protocol}://${req.get('host')}`;
-                    const image = `${hostUrl}/api/og/${subjectId}`;
+                    const image = `${hostUrl}/api/og/${subjectId}.png`;
+                    const movieCoverUrl = movie.cover?.url || movie.thumbnail || `${hostUrl}/icons/slflix.png`;
                     const url = `${hostUrl}${req.originalUrl}`;
                     html = html.replace(/<title>.*?<\/title>/, `<title>${title}</title>`);
-                    html = html.replace(/<meta name="description" content=".*?"/, `<meta name="description" content="${description}"`);
+                    html = html.replace(/<meta name="description" content=".*?"\s*\/?>/, `<meta name="description" content="${description}">`);
                     html = html.replace(/<meta property="og:title" content=".*?"\s*\/?>/, `<meta property="og:title" content="${title}">`);
                     html = html.replace(/<meta property="og:description" content=".*?"\s*\/?>/, `<meta property="og:description" content="${description}">`);
-                    html = html.replace(/<meta property="og:image" content=".*?"\s*\/?>/, `<meta property="og:image" content="${image}">`);
+                    html = html.replace(/<meta property="og:image" content=".*?"\s*\/?>/, `<meta property="og:image" content="${image}">\n    <meta property="og:image:type" content="image/png">\n    <meta property="og:image:width" content="1200">\n    <meta property="og:image:height" content="630">`);
                     html = html.replace(/<meta property="og:type" content=".*?"\s*\/?>/, `<meta property="og:type" content="${isTv ? 'video.tv_show' : 'video.movie'}">`);
                     html = html.replace(/<meta property="og:url" content=".*?"\s*\/?>/, `<meta property="og:url" content="${url}">`);
                     html = html.replace(/<meta name="twitter:title" content=".*?"\s*\/?>/, `<meta name="twitter:title" content="${title}">`);
                     html = html.replace(/<meta name="twitter:description" content=".*?"\s*\/?>/, `<meta name="twitter:description" content="${description}">`);
                     html = html.replace(/<meta name="twitter:image" content=".*?"\s*\/?>/, `<meta name="twitter:image" content="${image}">`);
+                    html = html.replace(/<link rel="icon"[^>]*>/, `<link rel="icon" type="image/jpeg" href="${movieCoverUrl}">`);
+                    html = html.replace(/<link rel="shortcut icon"[^>]*>/, `<link rel="shortcut icon" type="image/jpeg" href="${movieCoverUrl}">`);
+                    html = html.replace(/<link rel="apple-touch-icon"[^>]*>/, `<link rel="apple-touch-icon" href="${movieCoverUrl}">`);
                     if (html.includes('rel="canonical"')) {
                         html = html.replace(/rel="canonical" href=".*?"/, `rel="canonical" href="${url}"`);
                     } else {

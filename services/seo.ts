@@ -3,31 +3,63 @@ const SITE_NAME = 'SL-FLIX';
 const SITE_URL = 'https://devomega.my.id';
 const DEFAULT_IMAGE = '/icons/slflix.png';
 const DEFAULT_DESCRIPTION = 'Watch Movies, TV Series & Anime Online Free in HD. Stream latest films and shows without registration.';
+
+export const updateFavicon = (iconUrl: string) => {
+    if (typeof document === 'undefined') return;
+    const rels = ['icon', 'shortcut icon', 'apple-touch-icon'];
+    rels.forEach(rel => {
+        let el = document.querySelector(`link[rel="${rel}"]`) as HTMLLinkElement;
+        if (!el) {
+            el = document.createElement('link');
+            el.setAttribute('rel', rel);
+            document.head.appendChild(el);
+        }
+        el.setAttribute('href', iconUrl);
+    });
+};
+
 export const updateMetaTags = (movie: MovieResult | null, isHome: boolean = false) => {
     const movieTitle = movie?.title || '';
     const title = movie 
         ? `${movieTitle} | Watch Online Free - ${SITE_NAME}`
         : `${SITE_NAME} | Free Movies, TV Shows & Anime Streaming`;
-    const description = movie 
-        ? `Watch ${movieTitle} online free in HD. ${movie.description?.slice(0, 100) || movie.genre || 'Stream now on ' + SITE_NAME}. ${movie.releaseDate ? 'Released ' + movie.releaseDate + '.' : ''}`
-        : DEFAULT_DESCRIPTION;
+    
+    // Use the movie's own description when on detail page
+    const movieOwnDescription = movie?.description?.trim();
+    const description = (isHome || !movie) 
+        ? DEFAULT_DESCRIPTION 
+        : (movieOwnDescription || `Watch ${movieTitle} online free in HD. ${movie.genre || 'Stream now on ' + SITE_NAME}.`);
+    
     const hostUrl = `${window.location.protocol}//${window.location.host}`;
-    const image = movie ? `${hostUrl}/api/og/${movie.subjectId || movie.detailPath}` : `${hostUrl}${DEFAULT_IMAGE}`;
+    const subjectId = movie?.subjectId || movie?.detailPath || '';
+    const image = (movie && subjectId) ? `${hostUrl}/api/og/${subjectId}.png` : `${hostUrl}${DEFAULT_IMAGE}`;
     const url = window.location.href;
+
     document.title = title;
+
+    // Update head icon (browser tab icon / favicon / apple-touch-icon) to the movie's image
+    const anyMovie = movie as any;
+    const movieCover = (typeof anyMovie?.cover === 'object' && anyMovie?.cover?.url)
+        ? anyMovie.cover.url
+        : (typeof anyMovie?.cover === 'string' ? anyMovie.cover : (anyMovie?.thumbnail || anyMovie?.poster || ''));
+    const headIcon = (!isHome && movieCover) ? movieCover : DEFAULT_IMAGE;
+    updateFavicon(headIcon);
+
     const setMeta = (property: string, content: string, isName: boolean = false) => {
         let el: HTMLMetaElement | null = isName 
             ? document.querySelector(`meta[name="${property}"]`) as HTMLMetaElement
             : document.querySelector(`meta[property="${property}"]`) as HTMLMetaElement;
         if (!el) {
-            el = document.createElement(isName ? 'meta' : 'meta');
+            el = document.createElement('meta');
             if (!isName) el.setAttribute('property', property);
             else el.setAttribute('name', property);
             document.head.appendChild(el);
         }
         el.setAttribute('content', content);
     };
+
     setMeta('description', description, true);
+    
     const keywords = movie 
         ? `${movieTitle}, watch ${movieTitle} online, stream ${movieTitle}, ${movie.genre || ''}, ${movie.countryName || ''}, free movie streaming, watch online free, hd movies, ${movie.type}, ${movie.releaseDate || ''}`
         : 'free movies, tv shows, anime, streaming, watch online, hd, 4k, movies online, series streaming';
@@ -36,17 +68,20 @@ export const updateMetaTags = (movie: MovieResult | null, isHome: boolean = fals
     setMeta('googlebot', 'index, follow, all', true);
     setMeta('googlebot-news', 'index, follow', true);
     setMeta('googlebot-video', 'index, follow', true);
-    const isTv = movie?.type === 'TV Series' || movie?.category === 'Series' || movie?.subjectType === 2;
+
+    const isTv = movie?.type === 'TV Series' || anyMovie?.category === 'Series' || anyMovie?.subjectType === 2;
     setMeta('og:type', isHome ? 'website' : (isTv ? 'video.tv_show' : 'video.movie'));
     setMeta('og:title', title);
     setMeta('og:description', description);
     setMeta('og:image', image);
-    setMeta('og:image:width', '1280');
-    setMeta('og:image:height', '720');
+    setMeta('og:image:type', 'image/png');
+    setMeta('og:image:width', '1200');
+    setMeta('og:image:height', '630');
     setMeta('og:image:alt', movieTitle ? `Watch ${movieTitle} online free` : 'SL-FLIX Movies');
     setMeta('og:url', url);
     setMeta('og:site_name', SITE_NAME);
     setMeta('og:locale', 'en_US');
+
     if (!isHome && movie) {
         setMeta('video:title', movieTitle);
         setMeta('video:description', description);
@@ -55,6 +90,7 @@ export const updateMetaTags = (movie: MovieResult | null, isHome: boolean = fals
         setMeta('video:release_date', movie.releaseDate || '');
         setMeta('video:tag', movie.genre || '');
     }
+
     setMeta('twitter:card', 'summary_large_image', true);
     setMeta('twitter:title', title, true);
     setMeta('twitter:description', description, true);
@@ -66,6 +102,7 @@ export const updateMetaTags = (movie: MovieResult | null, isHome: boolean = fals
     setMeta('copyright', `© ${new Date().getFullYear()} ${SITE_NAME}`, true);
     setMeta('language', 'english', true);
     setMeta('revisit-after', '1 day', true);
+
     let canonical = document.querySelector('link[rel="canonical"]') as HTMLLinkElement;
     if (!canonical) {
         canonical = document.createElement('link');
@@ -73,6 +110,7 @@ export const updateMetaTags = (movie: MovieResult | null, isHome: boolean = fals
         document.head.appendChild(canonical);
     }
     canonical.setAttribute('href', url);
+
     updateJsonLd(movie, isHome);
 };
 const updateJsonLd = (movie: MovieResult | null, isHome: boolean) => {
