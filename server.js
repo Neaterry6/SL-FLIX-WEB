@@ -225,21 +225,21 @@ app.get('/api/og/:subjectId', async (req, res) => {
     const { subjectId } = req.params;
     if (!subjectId || subjectId.length < 3) return res.status(400).send('Invalid ID');
     try {
-        const apiUrl = `https://gzmovieboxapi.septorch.tech/api/media?apikey=Godszeal&subjectId=${subjectId}`;
+        const apiUrl = `https://h5-api.aoneroom.com/wefeed-h5api-bff/detail?subjectId=${subjectId}`;
         const response = await fetch(apiUrl, {
             headers: { 'Origin': 'https://moviebox.ph', 'Referer': 'https://moviebox.ph/' }
         });
         if (!response.ok) throw new Error('API Error');
         const data = await response.json();
-        const movie = data.data;
+        const movie = data.data?.subject;
         if (!movie) throw new Error('Movie not found');
         const title = (movie.title || 'SLFLIX Movie').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         const hostUrl = `${req.protocol}://${req.get('host')}`;
-        const poster = movie.cover || movie.thumbnail || `${hostUrl}/icons/slflix.png`;
-        const rating = movie.imdbRating || movie.rating || 'N/A';
+        const poster = movie.cover?.url || movie.thumbnail || `${hostUrl}/icons/slflix.png`;
+        const rating = movie.imdbRatingValue || movie.imdbRating || movie.rating || 'N/A';
         const year = (movie.releaseDate || '').split('-')[0] || '2024';
         const genre = (movie.genre || movie.category || 'Movie').replace(/&/g, '&amp;');
-        const type = movie.type || (subjectId.startsWith('tv') ? 'TV Series' : 'Movie');
+        const type = (movie.subjectType === 2 || movie.type === 'TV Series' || movie.category === 'Series') ? 'TV Series' : 'Movie';
         const logoUrl = `${hostUrl}/icons/slflix.png`;
         const svg = `
 <svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
@@ -319,7 +319,7 @@ app.get('/api/og/:subjectId', async (req, res) => {
         res.send(svg);
     } catch (e) {
         console.error('[OG] Error:', e);
-        res.status(500).send('Error generating preview');
+        res.status(500).send(e.toString());
     }
 });
 app.get('/sitemap.xml', async (req, res) => {
@@ -477,7 +477,7 @@ async function getDynamicHtml(req, res) {
     let html = fs.readFileSync(htmlPath, 'utf8');
     if ((isMovie || isTv) && subjectId && subjectId.length > 5) {
         try {
-            const apiUrl = `https://gzmovieboxapi.septorch.tech/api/media?apikey=Godszeal&subjectId=${subjectId}`;
+            const apiUrl = `https://h5-api.aoneroom.com/wefeed-h5api-bff/detail?subjectId=${subjectId}`;
             let response;
             let retries = 2;
             while (retries >= 0) {
@@ -506,8 +506,8 @@ async function getDynamicHtml(req, res) {
             }
             if (response && response.ok) {
                 const data = await response.json();
-                if (data.code === 0 && data.data) {
-                    const movie = data.data;
+                if (data.code === 0 && data.data && data.data.subject) {
+                    const movie = data.data.subject;
                     const rawTitle = `${movie.title} | Watch Online Free - SLFLIX`;
                     const rawDescription = `Watch ${movie.title} online free in HD. ${movie.description?.slice(0, 160) || 'Stream now on SLFLIX'}.`;
                     const title = rawTitle.replace(/"/g, '&quot;');

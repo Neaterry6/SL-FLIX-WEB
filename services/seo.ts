@@ -1,7 +1,7 @@
 import { MovieResult } from '../types';
 const SITE_NAME = 'SL-FLIX';
-const SITE_URL = 'https://devomega.my.id/';
-const DEFAULT_IMAGE = '/public/icons/slflix.png';
+const SITE_URL = 'https://devomega.my.id';
+const DEFAULT_IMAGE = '/icons/slflix.png';
 const DEFAULT_DESCRIPTION = 'Watch Movies, TV Series & Anime Online Free in HD. Stream latest films and shows without registration.';
 export const updateMetaTags = (movie: MovieResult | null, isHome: boolean = false) => {
     const movieTitle = movie?.title || '';
@@ -36,7 +36,8 @@ export const updateMetaTags = (movie: MovieResult | null, isHome: boolean = fals
     setMeta('googlebot', 'index, follow, all', true);
     setMeta('googlebot-news', 'index, follow', true);
     setMeta('googlebot-video', 'index, follow', true);
-    setMeta('og:type', isHome ? 'website' : 'video.movie');
+    const isTv = movie?.type === 'TV Series' || movie?.category === 'Series' || movie?.subjectType === 2;
+    setMeta('og:type', isHome ? 'website' : (isTv ? 'video.tv_show' : 'video.movie'));
     setMeta('og:title', title);
     setMeta('og:description', description);
     setMeta('og:image', image);
@@ -54,13 +55,13 @@ export const updateMetaTags = (movie: MovieResult | null, isHome: boolean = fals
         setMeta('video:release_date', movie.releaseDate || '');
         setMeta('video:tag', movie.genre || '');
     }
-    setMeta('twitter:card', 'summary_large_image');
-    setMeta('twitter:title', title);
-    setMeta('twitter:description', description);
-    setMeta('twitter:image', image);
-    setMeta('twitter:image:alt', movieTitle ? `Watch ${movieTitle}` : 'SL-FLIX Movies');
-    setMeta('twitter:site', '@slflix');
-    setMeta('twitter:creator', '@slflix');
+    setMeta('twitter:card', 'summary_large_image', true);
+    setMeta('twitter:title', title, true);
+    setMeta('twitter:description', description, true);
+    setMeta('twitter:image', image, true);
+    setMeta('twitter:image:alt', movieTitle ? `Watch ${movieTitle}` : 'SL-FLIX Movies', true);
+    setMeta('twitter:site', '@slflix', true);
+    setMeta('twitter:creator', '@slflix', true);
     setMeta('author', SITE_NAME, true);
     setMeta('copyright', `© ${new Date().getFullYear()} ${SITE_NAME}`, true);
     setMeta('language', 'english', true);
