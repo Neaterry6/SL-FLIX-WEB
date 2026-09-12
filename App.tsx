@@ -1005,19 +1005,21 @@ const App: React.FC = () => {
                 )
             )}
             <div className={playerState.isOpen ? 'hidden' : 'block'}>
-                <Navbar 
-                    onSearch={handleSearch} 
-                    onHome={() => { setCurrentView('home'); window.history.pushState({}, '', '/'); resetToHomeSEO(); }} 
-                    onToplist={() => handleToplistClick()} 
-                    onLiveTv={handleLiveTvClick}
-                    onNews={() => { hasNavigatedRef.current = true; setCurrentView('news'); window.history.pushState({}, '', '/news'); resetToHomeSEO(); }}
-                    onWebtoon={handleWebtoonClick}
-                    onAdult={() => { hasNavigatedRef.current = true; setCurrentView('adult'); window.history.pushState({}, '', '/adult'); resetToHomeSEO(); }}
-                    isSearchOpen={isSearchOpen} 
-                    setIsSearchOpen={setIsSearchOpen} 
-                    trendingKeywords={trendingKeywords} 
-                    currentView={currentView}
-                />
+                {currentView !== 'live-tv' && currentView !== 'webtoon-reader' && (
+                    <Navbar 
+                        onSearch={handleSearch} 
+                        onHome={() => { setCurrentView('home'); window.history.pushState({}, '', '/'); resetToHomeSEO(); }} 
+                        onToplist={() => handleToplistClick()} 
+                        onLiveTv={handleLiveTvClick}
+                        onNews={() => { hasNavigatedRef.current = true; setCurrentView('news'); window.history.pushState({}, '', '/news'); resetToHomeSEO(); }}
+                        onWebtoon={handleWebtoonClick}
+                        onAdult={() => { hasNavigatedRef.current = true; setCurrentView('adult'); window.history.pushState({}, '', '/adult'); resetToHomeSEO(); }}
+                        isSearchOpen={isSearchOpen} 
+                        setIsSearchOpen={setIsSearchOpen} 
+                        trendingKeywords={trendingKeywords} 
+                        currentView={currentView}
+                    />
+                )}
                 <main className="flex-1">
                     {currentView === 'home' && (
                         <div className="pb-24">

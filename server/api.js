@@ -552,8 +552,8 @@ router.get('/tv/img', async (req, res) => {
             } else if (decodedUrl.includes("imoviesge.com")) {
                 headers['Referer'] = 'https://imoviesge.com/';
             } else {
-                headers['Referer'] = 'https://ch.omegatech.app/';
-                headers['Origin'] = 'https://ch.omegatech.app';
+                headers['Referer'] = 'https://api.omegatech.app/';
+                headers['Origin'] = 'https://api.omegatech.app';
             }
         }
         const FALLBACK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><rect width="100" height="100" fill="#141414"/><path d="M38 32 L68 50 L38 68 Z" fill="#00e5ff"/></svg>`;
@@ -594,15 +594,7 @@ router.get('/tv/img', async (req, res) => {
         }
     }
 });
-router.get('/tv/home', async (req, res) => {
-    try {
-        const data = await fetchExternal(`https://ch.omegatech.app/home`);
-        res.json({ data });
-    } catch (error) {
-        console.error("TV Home error:", error);
-        res.status(500).json({ error: "Internal server error", data: null });
-    }
-});
+
 router.get('/tv/channels', async (req, res) => {
     try {
         const { cat, country, q, offset, limit } = req.query;
@@ -669,94 +661,69 @@ router.get('/tv/sync-force', async (req, res) => {
         res.status(500).json({ error: "Internal server error" });
     }
 });
+
 router.get('/tv/guide', async (req, res) => {
     try {
-        const { date } = req.query;
-        let url = `https://ch.omegatech.app/guide`;
-        if (date) url += `?date=${date}`;
-        const data = await fetchExternal(url);
-        let flattenedPrograms = [];
-        if (Array.isArray(data)) {
-            data.forEach(chItem => {
-                if (chItem.programs && Array.isArray(chItem.programs)) {
-                    chItem.programs.forEach(prog => {
-                        flattenedPrograms.push({
-                            ...prog,
-                            channel_id: chItem.channel?.id,
-                            channel_name: chItem.channel?.name,
-                            channel_logo: chItem.channel?.posterUrl
-                        });
-                    });
-                }
-            });
-        }
-        flattenedPrograms.sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+        const result = getNormalizedChannels({ limit: 100 });
+        const now = new Date();
+        const flattenedPrograms = (result.data || []).map((ch, idx) => ({
+            id: `guide_${ch.id}`,
+            channel_id: ch.id,
+            channel_name: ch.name,
+            channel_logo: ch.logo,
+            title: `${ch.name} Live Stream`,
+            start: new Date(now.getTime() - (idx * 10 * 60000)).toISOString(),
+            end: new Date(now.getTime() + (50 * 60000)).toISOString(),
+            description: ch.description || `Live stream on ${ch.name}`
+        }));
         res.json({ data: flattenedPrograms });
     } catch (error) {
         console.error("TV Guide error:", error);
         res.status(500).json({ error: "Internal server error", data: [] });
     }
 });
+
 router.get('/tv/onnow', async (req, res) => {
     try {
-        const data = await fetchExternal(`https://ch.omegatech.app/onnow`);
-        const rawItems = Array.isArray(data) ? data : (data.data || data.items || []);
-        const normalized = rawItems.map(item => {
-            const channel = item.channel || {};
-            const program = (item.programs && item.programs[0]) || item.program || item;
-            const rawUrl = channel.streamUrl || channel.stream_url || item.stream_url || channel.url || item.url || '';
-            return {
-                id: channel.id || item.id,
-                channel_name: channel.name || item.channel_name,
-                title: program.title || item.title,
-                start_time: program.start || item.start || item.start_time,
-                end_time: program.end || item.end || item.end_time,
-                duration: program.dur || item.duration,
-                logo: channel.posterUrl || channel.logo || item.logo,
-                thumbnail: program.thumb || item.thumbnail || channel.posterUrl,
-                stream_url: rawUrl,
-                url: rawUrl
-            };
-        });
+        const result = getNormalizedChannels({ limit: 50 });
+        const normalized = (result.data || []).map(ch => ({
+            id: ch.id,
+            channel_name: ch.name,
+            title: `${ch.name} Live`,
+            logo: ch.logo,
+            thumbnail: ch.logo,
+            stream_url: ch.url || ch.stream_url,
+            url: ch.url || ch.stream_url
+        }));
         res.json({ data: normalized });
     } catch (error) {
         console.error("TV OnNow error:", error);
         res.status(500).json({ error: "Internal server error", data: [] });
     }
 });
+
 router.get('/tv/matches', async (req, res) => {
     try {
-        const { season } = req.query;
-        let url = `https://ch.omegatech.app/matches`;
-        if (season) url += `?season=${season}`;
-        const data = await fetchExternal(url);
-        const rawMatches = data.matches || (Array.isArray(data) ? data : []);
+        const data = await fetchExternal('https://omegatech-api.dixonomega.tech/api/Sport/sport-feeds');
+        const rawMatches = data?.matches || (Array.isArray(data) ? data : []);
         const normalized = rawMatches.map(m => {
-            const home = m.homeTeam || { name: m.home_team, crest: m.home_logo };
-            const away = m.awayTeam || { name: m.away_team, crest: m.away_logo };
+            const home = m.homeTeam || m.team1 || { name: m.home_team, crest: m.home_logo };
+            const away = m.awayTeam || m.team2 || { name: m.away_team, crest: m.away_logo };
             const comp = m.competition || { name: m.league, emblem: m.league_logo };
-            let scoreStr = '0 - 0';
-            if (m.score?.fullTime) {
-                scoreStr = `${m.score.fullTime.home ?? 0} - ${m.score.fullTime.away ?? 0}`;
-            } else if (typeof m.score === 'string') {
-                scoreStr = m.score;
-            }
+            let scoreStr = `${home.score || '0'} - ${away.score || '0'}`;
             return {
-                id: m.id,
-                home_team: home.name,
-                away_team: away.name,
-                home_logo: home.crest || home.logo,
-                away_logo: away.crest || away.logo,
+                id: m.id || Math.random().toString(),
+                home_team: home.name || 'Home Team',
+                away_team: away.name || 'Away Team',
+                home_logo: home.crest || home.logo || home.icon || '',
+                away_logo: away.crest || away.logo || away.icon || '',
                 score: scoreStr,
-                date: m.utcDate || m.date,
-                time: m.utcDate ? new Date(m.utcDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : (m.time || ''),
-                status: m.status,
-                league: comp.name,
-                league_logo: comp.emblem || comp.logo,
-                urls: (m.urls || []).map((u) => {
-                    const urlVal = typeof u === 'string' ? u : u.url;
-                    return { ...u, url: urlVal };
-                })
+                date: m.utcDate || m.date || new Date().toISOString(),
+                time: m.time || 'LIVE',
+                status: m.status || 'LIVE',
+                league: comp.name || 'Sports',
+                league_logo: comp.emblem || comp.logo || '',
+                urls: (m.urls || m.streamUrls || []).map(u => typeof u === 'string' ? { url: u } : u)
             };
         });
         res.json({ data: normalized });
@@ -765,27 +732,35 @@ router.get('/tv/matches', async (req, res) => {
         res.status(500).json({ error: "Internal server error", data: [] });
     }
 });
+
 router.get('/tv/home', async (req, res) => {
     try {
-        const data = await fetchExternal(`https://ch.omegatech.app/home`);
-        if (!data || data.raw || typeof data !== 'object' || (!data.banners && !data.onnow)) {
-            return res.json({ banners: [], onnow: [], categories: [] });
-        }
-        if (data && data.banners) {
-            data.banners = data.banners.map(b => {
-                return b;
-            });
-        }
-        if (data && data.onnow) {
-            data.onnow = data.onnow.map(item => {
-                return item;
-            });
-        }
-        res.json(data);
+        const result = getNormalizedChannels({ limit: 50 });
+        const categories = getCategories();
+        const channelsList = result.data || [];
+        const banners = channelsList.slice(0, 5).map(ch => ({
+            id: ch.id,
+            title: ch.name,
+            description: ch.description || `Watch ${ch.name} Live Stream`,
+            thumbnail: ch.logo,
+            stream_url: ch.url || ch.stream_url
+        }));
+        const onnow = channelsList.slice(0, 10).map(ch => ({
+            id: ch.id,
+            channel_name: ch.name,
+            title: `${ch.name} Live`,
+            logo: ch.logo,
+            thumbnail: ch.logo,
+            stream_url: ch.url || ch.stream_url,
+            url: ch.url || ch.stream_url
+        }));
+        res.json({ banners, onnow, categories });
     } catch (error) {
-        res.status(500).json({ error: "Internal server error" });
+        console.error("TV Home error:", error);
+        res.json({ banners: [], onnow: [], categories: [] });
     }
 });
+
 router.get('/live-tv', async (req, res) => {
     try {
         const cacheKey = 'live_tv_list';

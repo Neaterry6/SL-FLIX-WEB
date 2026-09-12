@@ -29,7 +29,7 @@ const CategorySkeleton = () => (
     </div>
   </div>
 );
-const Hero: React.FC<{ movies: MovieResult[], onPlay: (m: MovieResult) => void }> = ({ movies, onPlay }) => {
+const Hero: React.FC<{ movies: MovieResult[], onPlay: (m: MovieResult) => void, onDetails: (m: MovieResult) => void }> = ({ movies, onPlay, onDetails }) => {
   const [currentIndex, setCurrentIndex] = React.useState(0);
   const [isTransitioning, setIsTransitioning] = React.useState(false);
   React.useEffect(() => {
@@ -57,17 +57,20 @@ const Hero: React.FC<{ movies: MovieResult[], onPlay: (m: MovieResult) => void }
   return (
     <div className="h-[75vh] md:h-[80vh] relative flex items-center bg-[#0a0a15] overflow-hidden group mt-16 md:mt-0">
       <div className="absolute inset-0">
-        {movies.map((movie, idx) => (
-          <div 
-            key={idx} 
-            className={`absolute inset-0 bg-cover bg-center transition-all duration-1000 ease-in-out blur-[6px] ${idx === currentIndex ? 'opacity-50 scale-105' : 'opacity-0 scale-100'}`} 
-            style={{ backgroundImage: `url(${getOptimizedImageUrl(movie.cover, 1200)})` }} 
-          />
-        ))}
+        {movies.map((movie, idx) => {
+          const bgImg = movie.cover || movie.thumbnail || (movie as any).posterUrl;
+          return (
+            <div 
+              key={idx} 
+              className={`absolute inset-0 bg-cover bg-center transition-all duration-1000 ease-in-out ${idx === currentIndex ? 'opacity-40 scale-100' : 'opacity-0 scale-95'}`} 
+              style={{ backgroundImage: `url(${getOptimizedImageUrl(bgImg, 1200)})`, filter: 'blur(2px)' }} 
+            />
+          );
+        })}
       </div>
-      <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a15] via-[#0a0a15]/85 to-transparent"></div>
-      <div className="absolute inset-0 bg-gradient-to-r from-[#0a0a15] via-[#0a0a15]/90 to-[#0a0a15]/30"></div>
-      <div className="relative z-10 px-[4%] md:px-[6%] w-full max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-8 md:gap-16">
+      <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a15] via-[#0a0a15]/90 to-transparent"></div>
+      <div className="absolute inset-0 bg-gradient-to-r from-[#0a0a15] via-[#0a0a15]/95 to-transparent/30"></div>
+      <div className="relative z-10 px-[4%] md:px-[6%] w-full max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6 md:gap-16 mt-8 md:mt-0">
         <div className={`flex-1 transition-all duration-700 w-full ${isTransitioning ? 'opacity-0 -translate-x-4' : 'opacity-100 translate-x-0'}`}>
           <div className="flex flex-wrap items-center gap-3 mb-4">
             <span className="text-white font-bold text-[10px] md:text-xs tracking-[0.2em] uppercase px-3 py-1 bg-white/10 backdrop-blur-md rounded-sm border border-white/10">
@@ -80,7 +83,7 @@ const Hero: React.FC<{ movies: MovieResult[], onPlay: (m: MovieResult) => void }
             )}
             {m.releaseDate && <span className="text-gray-300 text-[10px] md:text-xs font-medium bg-white/5 px-2 py-1 rounded-sm">{m.releaseDate.substring(0, 4)}</span>}
           </div>
-          <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-black text-white mb-4 leading-[1.1] tracking-tighter drop-shadow-2xl line-clamp-3">
+          <h1 className="text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-black text-white mb-4 leading-[1.1] tracking-tighter drop-shadow-2xl line-clamp-3">
             {m.title}
           </h1>
           {m.genre && (
@@ -89,7 +92,7 @@ const Hero: React.FC<{ movies: MovieResult[], onPlay: (m: MovieResult) => void }
               <span>{m.genre}</span>
             </div>
           )}
-          <p className="text-gray-300 text-sm sm:text-base md:text-lg mb-8 max-w-2xl line-clamp-3 md:line-clamp-4 drop-shadow-lg font-medium leading-relaxed">
+          <p className="text-gray-300 text-sm sm:text-base md:text-lg mb-8 max-w-2xl line-clamp-2 sm:line-clamp-3 md:line-clamp-4 drop-shadow-lg font-medium leading-relaxed">
             {m.description || "Watch this and more trending content in ultra high definition. Stream anywhere, anytime on SLFLIX."}
           </p>
           <div className="flex flex-wrap items-center gap-4">
@@ -101,7 +104,7 @@ const Hero: React.FC<{ movies: MovieResult[], onPlay: (m: MovieResult) => void }
               <span>Play Now</span>
             </button>
             <button 
-              onClick={() => onPlay(m)} 
+              onClick={() => onDetails(m)} 
               className="bg-white/10 hover:bg-white/20 text-white backdrop-blur-md font-bold text-base md:text-lg py-3 md:py-4 px-8 rounded transition-all duration-300 flex items-center gap-3 border border-white/10"
             >
               <i className="fa-solid fa-circle-info"></i>
@@ -114,28 +117,33 @@ const Hero: React.FC<{ movies: MovieResult[], onPlay: (m: MovieResult) => void }
              className="w-full aspect-[2/3] rounded-2xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.8)] border border-white/10 relative cursor-pointer group"
              onClick={() => onPlay(m)}
            >
-              <img src={getOptimizedImageUrl(m.cover, 600)} onError={(e) => { (e.target as HTMLImageElement).src = DEFAULT_FAVICON_FALLBACK; }} alt={m.title} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+              <img 
+                src={getOptimizedImageUrl(m.cover || m.thumbnail || (m as any).posterUrl, 600)} 
+                onError={(e) => { (e.target as HTMLImageElement).src = DEFAULT_FAVICON_FALLBACK; }} 
+                alt={m.title} 
+                className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" 
+              />
               <div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition-colors duration-500"></div>
               <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-500">
-                  <div className="w-16 h-16 rounded-full bg-primary/90 text-black flex items-center justify-center shadow-[0_0_30px_rgba(0,229,255,0.5)] transform scale-50 group-hover:scale-100 transition-transform duration-500 delay-100">
-                      <i className="fa-solid fa-play ml-1 text-2xl"></i>
+                  <div className="w-12 sm:w-16 h-12 sm:h-16 rounded-full bg-primary/90 text-black flex items-center justify-center shadow-[0_0_30px_rgba(0,229,255,0.5)] transform scale-50 group-hover:scale-100 transition-transform duration-500 delay-100">
+                      <i className="fa-solid fa-play ml-1 text-xl sm:text-2xl"></i>
                   </div>
               </div>
            </div>
         </div>
       </div>
       {movies.length > 1 && (
-        <div className="absolute bottom-6 right-[4%] md:right-[6%] z-20 flex items-center gap-3 bg-black/40 backdrop-blur-md p-1.5 rounded-xl border border-white/5 max-w-[90%] overflow-x-auto scrollbar-hide">
+        <div className="absolute bottom-6 left-[4%] md:left-auto right-auto md:right-[6%] z-20 flex items-center gap-2 md:gap-3 bg-black/40 backdrop-blur-md p-1.5 rounded-xl border border-white/5 max-w-[92%] md:max-w-[70%] overflow-x-auto scrollbar-hide">
           {movies.map((movie, idx) => (
             <button 
               key={idx} 
               onClick={() => goToSlide(idx)} 
-              className={`relative w-10 md:w-12 h-14 md:h-16 rounded overflow-hidden transition-all duration-300 border flex-shrink-0 cursor-pointer ${idx === currentIndex ? 'border-primary scale-110 ring-2 ring-primary/20' : 'border-white/10 opacity-50 hover:opacity-100 hover:scale-105'}`} 
+              className={`relative w-12 md:w-14 h-16 md:h-20 rounded-lg overflow-hidden transition-all duration-300 border flex-shrink-0 cursor-pointer ${idx === currentIndex ? 'border-primary scale-110 shadow-[0_0_15px_rgba(0,229,255,0.4)]' : 'border-white/10 opacity-60 hover:opacity-100 hover:scale-105'}`} 
             >
-              <img src={getOptimizedImageUrl(movie.cover, 100)} onError={(e) => { (e.target as HTMLImageElement).src = DEFAULT_FAVICON_FALLBACK; }} alt={movie.title} className="w-full h-full object-cover" />
+              <img src={getOptimizedImageUrl(movie.cover || movie.thumbnail || (movie as any).posterUrl, 100)} onError={(e) => { (e.target as HTMLImageElement).src = DEFAULT_FAVICON_FALLBACK; }} alt={movie.title} className="w-full h-full object-cover" />
               {idx === currentIndex && (
                 <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
-                  <div className="w-4 h-4 rounded-full bg-primary flex items-center justify-center"><i className="fa-solid fa-play text-[8px] text-black"></i></div>
+                  <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center"><i className="fa-solid fa-play text-[10px] text-black ml-0.5"></i></div>
                 </div>
               )}
             </button>
@@ -404,7 +412,7 @@ const HomePage: React.FC<{
   return (
     <div className="pb-24">
       <Suspense fallback={<HeroSkeleton />}>
-        <Hero movies={heroMovies} onPlay={onMovieClick} />
+        <Hero movies={heroMovies} onPlay={onMovieClick} onDetails={onMovieClick} />
       </Suspense>
 
       {/* Genre Navigation Bar */}

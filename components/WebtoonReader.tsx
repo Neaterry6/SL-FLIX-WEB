@@ -97,7 +97,7 @@ const WebtoonReader: React.FC<WebtoonReaderProps> = ({ url, title, onBack }) => 
         {data?.images.map((img, idx) => (
           <div key={idx} className="relative bg-black/20" style={{ minHeight: '200px' }}>
             <img 
-              src={img.url} 
+              src={img.url ? `/api/tv/img?url=${encodeURIComponent(img.url)}` : ''} 
               alt=""
               className="w-full h-auto block"
               loading={idx < 3 ? "eager" : "lazy"}

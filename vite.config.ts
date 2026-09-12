@@ -147,8 +147,10 @@ export default defineConfig(({ mode }) => {
     },
     
     server: {
-      port: 3000,
       host: true,
+      hmr: {
+        port: 24678
+      },
       proxy: {
         '/api-omegatech': {
           target: 'https://api.omegatech.app',

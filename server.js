@@ -196,7 +196,7 @@ app.use('/api-omegatech', omegatechLimiter, (req, res) => {
     const pathWithoutPrefix = req.url.startsWith('/') ? req.url : '/' + req.url;
     proxyRequest(
         req, res, 
-        'omegatech-api.dixonomega.tech', 
+        'api.omegatech.app', 
         pathWithoutPrefix,
         {}
     );
@@ -219,16 +219,7 @@ app.use('/api-player', (req, res) => {
         { 'Origin': 'https://123movienow.cc', 'Referer': 'https://123movienow.cc/' }
     );
 });
-app.use('/api-cineverse', (req, res) => {
-    const pathWithoutPrefix = req.url.startsWith('/') ? req.url : '/' + req.url;
-    proxyRequest(
-        req, res, 
-        'cineverse.name.ng', 
-        pathWithoutPrefix,
-        { 'Origin': 'https://cineverse.name.ng', 'Referer': 'https://cineverse.name.ng/' }
-    );
-});
-console.log('[PROXY] API proxies ready: metadata/player/cineverse/stream');
+console.log('[PROXY] API proxies ready: metadata/player/stream');
 app.use('/api', apiRouter);
 app.get('/api/og/:subjectId', async (req, res) => {
     const { subjectId } = req.params;
@@ -452,7 +443,12 @@ app.use(async (req, res, next) => {
 if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-        server: { middlewareMode: true },
+        server: { 
+            middlewareMode: true,
+            hmr: process.env.DISABLE_HMR === 'true' ? false : {
+                port: 24678
+            }
+        },
         appType: 'spa',
     });
     global.viteServer = vite;

@@ -4,6 +4,7 @@ import { WebtoonItem, WebtoonDetail } from '../types';
 import { LazyLoadImage } from 'react-lazy-load-image-component';
 import { ArrowLeft, Search, X, ChevronRight, TrendingUp, BookOpen, Clock, Tag } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { getOptimizedImageUrl } from '../utils/image';
 interface WebtoonViewProps {
   onBack: () => void;
   onRead: (url: string, title: string) => void;
@@ -232,7 +233,7 @@ const WebtoonCard = ({ item, onClick, i }: { item: WebtoonItem, onClick: () => v
   >
     <div className="relative aspect-[3/4] rounded-[2rem] overflow-hidden bg-white/5 border border-white/10 group-hover:border-primary/50 transition-all shadow-2xl group-hover:-translate-y-2 duration-500">
       <LazyLoadImage 
-        src={item.thumbnail} 
+        src={getOptimizedImageUrl(item.thumbnail, 400)} 
         alt={item.title} 
         effect="blur" referrerPolicy="no-referrer" 
         className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" 
