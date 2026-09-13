@@ -45,11 +45,16 @@ export interface SearchResponse {
   results: MovieResult[];
 }
 export interface Subtitle {
+  id?: string;
   lang?: string;
   language?: string;
+  languageCode?: string;
   name: string;
   url: string;
+  proxyUrl?: string;
   label?: string;
+  size?: string;
+  delay?: number;
 }
 export interface VideoSource {
   id?: string;

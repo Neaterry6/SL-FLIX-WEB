@@ -164,18 +164,40 @@ export const ApiService = {
         }
         try {
             const url = `/api-omegatech/api/movie/MovieBox-pro?action=search&keyword=${encodeURIComponent(query.trim())}&page=${page}`;
-            const data = await fetchJson(url);
-            console.log('[SLFLIX] Cineverse search response:', data);
+            let data: any = null;
+            try {
+                data = await fetchJson(url);
+            } catch (directErr) {
+                console.warn('[SLFLIX] Direct Omegatech search proxy failed, attempting server route:', directErr);
+            }
+
             if (data && (data.success || data.statusCode === 200)) {
                 const searchData = data.data?.raw || data.data || data.results || {};
-                const items = searchData.items || [];
+                const items = Array.isArray(searchData.results)
+                    ? searchData.results
+                    : (Array.isArray(searchData.items)
+                        ? searchData.items
+                        : (Array.isArray(data.results)
+                            ? data.results
+                            : (Array.isArray(data.data) ? data.data : [])));
+
                 const pager = searchData.pager || {};
+                const hasMore = pager.hasMore !== undefined
+                    ? Boolean(pager.hasMore)
+                    : (searchData.hasMore !== undefined ? Boolean(searchData.hasMore) : false);
+                const nextPage = pager.nextPage
+                    ? (parseInt(String(pager.nextPage), 10) || (page + 1))
+                    : (searchData.nextPage ? (parseInt(String(searchData.nextPage), 10) || (page + 1)) : (page + 1));
+                const totalCount = pager.totalCount !== undefined
+                    ? pager.totalCount
+                    : (searchData.total !== undefined ? searchData.total : items.length);
+
                 if (items.length > 0) {
                     const result = {
                         results: items.map(normalizeItem),
-                        hasMore: pager.hasMore || false,
-                        nextPage: parseInt(pager.nextPage) || (page + 1),
-                        totalCount: pager.totalCount || 0
+                        hasMore,
+                        nextPage,
+                        totalCount
                     };
                     if (page === 1) {
                         cacheService.set(cacheKey, result, 3 * 60 * 1000);
@@ -183,6 +205,27 @@ export const ApiService = {
                     return result;
                 }
             }
+
+            // Fallback to internal server search endpoint if direct proxy returns empty or fails
+            try {
+                const serverFallbackUrl = `/api/search?q=${encodeURIComponent(query.trim())}&page=${page}`;
+                const fallbackData = await fetchJson(serverFallbackUrl);
+                if (fallbackData && Array.isArray(fallbackData.results) && fallbackData.results.length > 0) {
+                    const result = {
+                        results: fallbackData.results.map(normalizeItem),
+                        hasMore: Boolean(fallbackData.hasMore),
+                        nextPage: page + 1,
+                        totalCount: fallbackData.totalCount || fallbackData.results.length
+                    };
+                    if (page === 1) {
+                        cacheService.set(cacheKey, result, 3 * 60 * 1000);
+                    }
+                    return result;
+                }
+            } catch (fallbackErr) {
+                console.warn('[SLFLIX] Server fallback search error:', fallbackErr);
+            }
+
             return { results: [], hasMore: false, nextPage: 1, totalCount: 0 };
         } catch (e) {
             console.error('[SLFLIX] Search error:', e);
@@ -397,7 +440,18 @@ export const ApiService = {
                         type: v.format?.toLowerCase() || 'mp4'
                     };
                 });
-                const subs = data.subtitles || [];
+                const subs: Subtitle[] = (data.subtitles || []).map((s: any) => ({
+                    id: s.id || s.languageCode || s.lang,
+                    lang: s.languageCode || s.lang || 'en',
+                    language: s.language || s.name || s.label || 'English',
+                    languageCode: s.languageCode || s.lang || 'en',
+                    name: s.name || s.language || s.label || 'English',
+                    label: s.label || s.language || s.name || 'English',
+                    url: s.url,
+                    proxyUrl: s.proxyUrl,
+                    size: s.size,
+                    delay: s.delay || 0
+                }));
                 const result = { videos, subs };
                 cacheService.set(cacheKey, result, 5 * 60 * 1000);
                 return result;

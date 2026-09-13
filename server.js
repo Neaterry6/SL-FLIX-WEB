@@ -11,9 +11,14 @@ import { URL } from 'url';
 import compression from 'compression';
 import { Resvg } from '@resvg/resvg-js';
 import apiRouter from './server/api.js';
+import { renderOgPng } from './server/ogGenerator.js';
+import { getNormalizedChannels } from './server/iptvStorage.js';
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// In-memory registry for staff/actors metadata populated from movie details
+const staffMap = new Map();
 
 // Pre-load default SLFLIX logo for OG canvas generation
 let slflixLogoDataUri = '';
@@ -236,20 +241,10 @@ app.use('/api-player', (req, res) => {
 });
 console.log('[PROXY] API proxies ready: metadata/player/stream');
 app.use('/api', apiRouter);
-app.get(['/api/og/:subjectId', '/api/og/:subjectId.png'], async (req, res) => {
-    let subjectId = req.params.subjectId || '';
-    if (subjectId.endsWith('.png')) {
-        subjectId = subjectId.replace(/\.png$/, '');
-    }
-    if (!subjectId || subjectId.length < 3) return res.status(400).send('Invalid ID');
-
-    // Check memory cache for instant response (<1ms)
-    if (ogImageCache.has(subjectId)) {
-        const cachedPng = ogImageCache.get(subjectId);
-        res.setHeader('Content-Type', 'image/png');
-        res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
-        return res.send(cachedPng);
-    }
+// Helper for Movie / TV / Anime OG Generation
+async function handleMovieOrTvOg(req, res, subjectId, forcedTheme = null) {
+    if (!subjectId || subjectId.length < 2) return res.status(400).send('Invalid ID');
+    const cacheKey = `og_${forcedTheme || 'auto'}_${subjectId}`;
 
     try {
         const apiUrl = `https://h5-api.aoneroom.com/wefeed-h5api-bff/detail?subjectId=${subjectId}`;
@@ -258,11 +253,12 @@ app.get(['/api/og/:subjectId', '/api/og/:subjectId.png'], async (req, res) => {
         while (retries >= 0) {
             try {
                 response = await fetch(apiUrl, {
-                    headers: { 'Origin': 'https://moviebox.ph', 'Referer': 'https://moviebox.ph/' }
+                    headers: { 'Origin': 'https://moviebox.ph', 'Referer': 'https://moviebox.ph/' },
+                    signal: AbortSignal.timeout(4000)
                 });
                 if (response.ok) break;
                 if (response.status === 503 && retries > 0) {
-                    await new Promise(resolve => setTimeout(resolve, 800));
+                    await new Promise(r => setTimeout(r, 800));
                     retries--;
                     continue;
                 }
@@ -270,7 +266,7 @@ app.get(['/api/og/:subjectId', '/api/og/:subjectId.png'], async (req, res) => {
             } catch (e) {
                 if (retries > 0) {
                     retries--;
-                    await new Promise(resolve => setTimeout(resolve, 800));
+                    await new Promise(r => setTimeout(r, 800));
                     continue;
                 }
                 throw e;
@@ -283,135 +279,214 @@ app.get(['/api/og/:subjectId', '/api/og/:subjectId.png'], async (req, res) => {
             movie = data.data?.subject;
         }
 
-        const rawTitle = movie?.title || 'SLFLIX Movie';
-        const title = rawTitle.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-        const posterUrl = movie?.cover?.url || movie?.thumbnail;
-        
-        let posterDataUri = '';
-        if (posterUrl) {
-            try {
-                const imgRes = await fetch(posterUrl);
-                if (imgRes.ok) {
-                    const buf = await imgRes.arrayBuffer();
-                    const mime = imgRes.headers.get('content-type') || 'image/jpeg';
-                    posterDataUri = `data:${mime};base64,${Buffer.from(buf).toString('base64')}`;
+        // Cache staff members from this movie so staff pages can look them up instantly!
+        if (movie && (movie.staffList || movie.staffs || movie.actors)) {
+            const list = movie.staffList || movie.staffs || movie.actors || [];
+            list.forEach(s => {
+                const id = String(s.staffId || s.id || '');
+                if (id) {
+                    staffMap.set(id, {
+                        name: s.name || s.enName || '',
+                        avatar: s.avatar?.url || s.avatar || s.photo || '',
+                        role: s.role || 'Actor'
+                    });
                 }
-            } catch (e) {
-                console.warn('[OG] Failed fetching poster image:', e.message);
-            }
-        }
-        if (!posterDataUri) {
-            posterDataUri = slflixLogoDataUri;
+            });
         }
 
-        const rating = movie?.imdbRatingValue || movie?.imdbRating || movie?.rating || '6.8';
+        const isTvSeries = movie?.subjectType === 2 || movie?.type === 'TV Series' || movie?.category === 'Series';
+        const theme = forcedTheme || (isTvSeries ? 'tv' : 'movie');
+
+        const title = movie?.title || movie?.name || (theme === 'tv' ? 'Featured TV Series' : 'Featured Movie');
+        const posterUrl = movie?.cover?.url || movie?.thumbnail || '';
+        const rating = movie?.imdbRatingValue || movie?.imdbRating || movie?.rating || '7.8';
         const year = (movie?.releaseDate || '').split('-')[0] || '2025';
-        const rawGenre = movie?.genre || movie?.category || 'Movie';
-        const genre = rawGenre.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        const type = (movie?.subjectType === 2 || movie?.type === 'TV Series' || movie?.category === 'Series') ? 'TV Series' : 'Movie';
+        const genre = movie?.genre || movie?.category || (isTvSeries ? 'TV Series' : 'Movie');
+        const description = (movie?.description || movie?.introduction || movie?.summary || '').trim();
+        const duration = movie?.duration ? `${movie.duration}m` : (isTvSeries ? 'ALL SEASONS' : '4K HDR');
 
-        const fontSize = title.length > 22 ? 46 : (title.length > 14 ? 54 : 68);
-
-        const svg = `
-<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
-  <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#080914" />
-      <stop offset="100%" stop-color="#0e0f1e" />
-    </linearGradient>
-    <linearGradient id="dividerGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#00e5ff" />
-      <stop offset="100%" stop-color="#f40af0" />
-    </linearGradient>
-    <filter id="posterShadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#000000" flood-opacity="0.75" />
-    </filter>
-    <clipPath id="posterClip">
-      <rect x="80" y="65" width="340" height="500" rx="24" />
-    </clipPath>
-    <pattern id="grid" width="60" height="60" patternUnits="userSpaceOnUse">
-      <path d="M 60 0 L 0 0 0 60" fill="none" stroke="white" stroke-width="0.5" stroke-opacity="0.04" />
-    </pattern>
-  </defs>
-
-  <!-- Background -->
-  <rect width="1200" height="630" fill="url(#bg)" />
-  <rect width="1200" height="630" fill="url(#grid)" />
-
-  <!-- Ambient Glow -->
-  <circle cx="1100" cy="120" r="280" fill="#00e5ff" fill-opacity="0.04" />
-  <circle cx="100" cy="520" r="240" fill="#f40af0" fill-opacity="0.03" />
-
-  <!-- Poster Card -->
-  <g filter="url(#posterShadow)">
-    <rect x="80" y="65" width="340" height="500" rx="24" fill="#181928" stroke="white" stroke-opacity="0.15" stroke-width="1.5" />
-    ${posterDataUri ? `<image href="${posterDataUri}" x="80" y="65" width="340" height="500" preserveAspectRatio="xMidYMid slice" clip-path="url(#posterClip)" />` : ''}
-  </g>
-
-  <!-- Top Right Brand / Logo -->
-  <g transform="translate(1040, 65)">
-    <rect width="76" height="76" rx="18" fill="#0f1122" stroke="white" stroke-opacity="0.12" stroke-width="1" />
-    ${slflixLogoDataUri ? `<image href="${slflixLogoDataUri}" x="10" y="10" width="56" height="56" />` : ''}
-  </g>
-
-  <!-- Content Section -->
-  <g transform="translate(470, 115)">
-    <!-- Category / Tagline -->
-    <text x="0" y="0" font-family="sans-serif" font-size="20" font-weight="800" fill="#00e5ff" letter-spacing="4">SLFLIX PRO PREMIUM</text>
-
-    <!-- Main Title -->
-    <text x="0" y="80" font-family="sans-serif" font-size="${fontSize}" font-weight="900" fill="#ffffff">${title}</text>
-
-    <!-- Badges Row -->
-    <g transform="translate(0, 125)">
-      <!-- Rating Badge -->
-      <rect x="0" y="0" width="100" height="44" rx="12" fill="#00e5ff" />
-      <text x="50" y="30" font-family="sans-serif" font-size="22" font-weight="800" fill="#000000" text-anchor="middle">★ ${rating}</text>
-
-      <!-- Year Badge -->
-      <rect x="116" y="0" width="95" height="44" rx="12" fill="white" fill-opacity="0.08" stroke="white" stroke-opacity="0.2" stroke-width="1" />
-      <text x="163" y="30" font-family="sans-serif" font-size="22" font-weight="700" fill="#ffffff" text-anchor="middle">${year}</text>
-
-      <!-- Type Badge -->
-      <rect x="227" y="0" width="130" height="44" rx="12" fill="white" fill-opacity="0.08" stroke="white" stroke-opacity="0.2" stroke-width="1" />
-      <text x="292" y="30" font-family="sans-serif" font-size="22" font-weight="700" fill="#ffffff" text-anchor="middle">${type}</text>
-    </g>
-
-    <!-- Genre -->
-    <text x="0" y="225" font-family="sans-serif" font-size="30" font-weight="500" fill="#9ca3af">${genre}</text>
-
-    <!-- Divider Line -->
-    <rect x="0" y="260" width="620" height="2" fill="url(#dividerGrad)" />
-
-    <!-- Promotional Subtitle -->
-    <text x="0" y="315" font-family="sans-serif" font-size="23" font-style="italic" fill="#8892b0">Stream unlimited movies and series in 4K resolution.</text>
-    <text x="0" y="355" font-family="sans-serif" font-size="23" font-style="italic" fill="#8892b0">Experience cinema at home with SLFLIX.</text>
-  </g>
-</svg>`;
-
-        if (req.query.format === 'svg') {
-            res.setHeader('Content-Type', 'image/svg+xml');
-            res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
-            return res.send(svg);
-        }
-
-        const resvg = new Resvg(svg, { fitTo: { mode: 'width', value: 1200 } });
-        const pngBuffer = resvg.render().asPng();
-
-        // Save to cache (cap size at 500)
-        if (ogImageCache.size > 500) {
-            const firstKey = ogImageCache.keys().next().value;
-            ogImageCache.delete(firstKey);
-        }
-        ogImageCache.set(subjectId, pngBuffer);
+        const pngBuffer = await renderOgPng({
+            theme: theme,
+            title: title,
+            description: description,
+            posterUrl: posterUrl,
+            rating: rating,
+            year: year,
+            duration: duration,
+            genre: genre,
+            quality: '4K ULTRA HD',
+            audio: 'DOLBY AUDIO'
+        }, cacheKey);
 
         res.setHeader('Content-Type', 'image/png');
         res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
         res.send(pngBuffer);
     } catch (e) {
-        console.error('[OG] Error generating image:', e);
+        console.error('[OG] Error generating image:', e.message);
         res.status(500).send('Error generating OG image');
     }
+}
+
+// Staff / Celebrity OG endpoint
+app.get(['/api/og/staff/:staffId', '/api/og/staff/:staffId.png'], async (req, res) => {
+    let staffId = (req.params.staffId || '').replace(/\.png$/, '');
+    let name = req.query.name || '';
+    let avatar = req.query.avatar || '';
+    let role = req.query.role || '';
+
+    if (!name && staffMap.has(staffId)) {
+        const cached = staffMap.get(staffId);
+        name = cached.name;
+        avatar = avatar || cached.avatar;
+        role = role || cached.role;
+    }
+
+    if (!name && staffId) {
+        try {
+            const staffApiUrl = `https://api.omegatech.app/api/movie/MovieBox-pro?action=staff&staffId=${encodeURIComponent(staffId)}&page=1`;
+            const r = await fetch(staffApiUrl, { signal: AbortSignal.timeout(3000) });
+            if (r.ok) {
+                const d = await r.json();
+                if (d.data?.staffName || d.data?.name) {
+                    name = d.data.staffName || d.data.name;
+                }
+            }
+        } catch (e) {}
+    }
+
+    if (!name) name = 'Featured Celebrity';
+    if (!role) role = 'Actor / Filmmaker';
+
+    const cacheKey = `staff_${staffId}_${name}`;
+
+    try {
+        const pngBuffer = await renderOgPng({
+            theme: 'staff',
+            title: name,
+            description: `Explore the complete filmography, movies, and TV series starring ${name} on SLFLIX. Stream online free in ultra-high definition.`,
+            posterUrl: avatar,
+            role: role,
+            rating: '9.2',
+            genre: role
+        }, cacheKey);
+
+        res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+        res.send(pngBuffer);
+    } catch (err) {
+        console.error('[OG Staff] Error:', err);
+        res.status(500).send('Error generating staff OG image');
+    }
+});
+
+// TV Series OG endpoint
+app.get(['/api/og/tv/:subjectId', '/api/og/tv/:subjectId.png', '/api/og/series/:subjectId', '/api/og/series/:subjectId.png'], async (req, res) => {
+    let subjectId = (req.params.subjectId || '').replace(/\.png$/, '');
+    await handleMovieOrTvOg(req, res, subjectId, 'tv');
+});
+
+// Movie OG endpoint
+app.get(['/api/og/movie/:subjectId', '/api/og/movie/:subjectId.png'], async (req, res) => {
+    let subjectId = (req.params.subjectId || '').replace(/\.png$/, '');
+    await handleMovieOrTvOg(req, res, subjectId, 'movie');
+});
+
+// Live TV OG endpoint
+app.get(['/api/og/live/:channelId', '/api/og/live/:channelId.png', '/api/og/live', '/api/og/live.png'], async (req, res) => {
+    let channelId = (req.params.channelId || '').replace(/\.png$/, '');
+    const cacheKey = `live_${channelId || 'global'}`;
+
+    let channelName = req.query.name || 'Live TV & Sports';
+    let channelLogo = req.query.logo || '';
+    let category = req.query.category || 'Live Broadcast';
+    let country = req.query.country || 'GLOBAL';
+
+    if (channelId) {
+        try {
+            const found = getNormalizedChannels({ query: channelId, limit: 1 });
+            if (found.data && found.data[0]) {
+                const ch = found.data[0];
+                channelName = ch.name || channelName;
+                channelLogo = ch.logo || channelLogo;
+                category = (ch.categories || []).join(', ') || category;
+                country = ch.country || country;
+            }
+        } catch (e) {}
+    }
+
+    try {
+        const pngBuffer = await renderOgPng({
+            theme: 'live',
+            title: channelName,
+            description: `Watch ${channelName} live broadcast around the clock with zero buffering, multi-language commentary, and crystal clear 60FPS streaming on SLFLIX.`,
+            posterUrl: channelLogo,
+            year: country,
+            genre: category,
+            quality: '60 FPS',
+            audio: 'LIVE STEREO'
+        }, cacheKey);
+
+        res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+        res.send(pngBuffer);
+    } catch (err) {
+        console.error('[OG Live] Error:', err);
+        res.status(500).send('Error generating live OG image');
+    }
+});
+
+// Anime OG endpoint
+app.get(['/api/og/anime/:subjectId', '/api/og/anime/:subjectId.png', '/api/og/anime', '/api/og/anime.png'], async (req, res) => {
+    let subjectId = (req.params.subjectId || '').replace(/\.png$/, '');
+    if (subjectId) {
+        await handleMovieOrTvOg(req, res, subjectId, 'anime');
+    } else {
+        const pngBuffer = await renderOgPng({
+            theme: 'anime',
+            title: 'Anime Simulcast HD',
+            description: 'Stream latest anime series, movies, and OVA episodes with English subtitles and dub in 1080p full HD on SLFLIX.',
+            genre: 'Anime, Action, Fantasy'
+        }, 'anime_global');
+        res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+        res.send(pngBuffer);
+    }
+});
+
+// Home / Master OG endpoint
+app.get(['/api/og/home', '/api/og/home.png', '/api/og', '/api/og.png'], async (req, res) => {
+    try {
+        const pngBuffer = await renderOgPng({
+            theme: 'home',
+            title: 'SLFLIX PRO Cinema Hub',
+            description: 'Stream over 10,000+ blockbuster movies, binge-worthy TV series, anime, and live channels with zero ads and no registration.',
+            rating: '9.8',
+            year: '2026',
+            genre: 'Movies, Series, Live TV',
+            quality: '4K ULTRA HD'
+        }, 'home_global');
+
+        res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+        res.send(pngBuffer);
+    } catch (err) {
+        console.error('[OG Home] Error:', err);
+        res.status(500).send('Error generating home OG image');
+    }
+});
+
+// Generic / Backward-compatible endpoint: /api/og/:subjectId
+app.get(['/api/og/:subjectId', '/api/og/:subjectId.png'], async (req, res) => {
+    let subjectId = (req.params.subjectId || '').replace(/\.png$/, '');
+    if (!subjectId || subjectId.length < 2) return res.status(400).send('Invalid ID');
+
+    if (subjectId.startsWith('staff-') || subjectId.startsWith('staff_')) {
+        req.params.staffId = subjectId.replace(/^staff[-_]/, '');
+        const fakeReq = { ...req, params: { staffId: req.params.staffId } };
+        return app._router.handle(fakeReq, res, () => {});
+    }
+
+    await handleMovieOrTvOg(req, res, subjectId);
 });
 app.get('/sitemap.xml', async (req, res) => {
     res.header('Content-Type', 'application/xml');
@@ -525,7 +600,14 @@ app.use(async (req, res, next) => {
     if (req.path.startsWith('/api') || req.path.startsWith('/socket.io') || req.path.includes('.')) {
         return next();
     }
-    if (process.env.NODE_ENV === 'production' || req.path.startsWith('/movie/') || req.path.startsWith('/tv/')) {
+    const isSeoRoute = req.path.startsWith('/movie/') || 
+                       req.path.startsWith('/tv/') || 
+                       req.path.startsWith('/series/') || 
+                       req.path.startsWith('/staff/') || 
+                       req.path.startsWith('/live') || 
+                       req.path.startsWith('/anime') || 
+                       req.path === '/';
+    if (process.env.NODE_ENV === 'production' || isSeoRoute) {
         await getDynamicHtml(req, res);
     } else {
         next();
@@ -554,11 +636,53 @@ if (process.env.NODE_ENV !== 'production') {
         }
     }));
 }
+
+function injectSeoTags(html, { title, description, image, icon, url, type = 'video.movie' }) {
+    if (title) {
+        html = html.replace(/<title>.*?<\/title>/, `<title>${title}</title>`);
+        html = html.replace(/<meta property="og:title" content=".*?"\s*\/?>/, `<meta property="og:title" content="${title}">`);
+        html = html.replace(/<meta name="twitter:title" content=".*?"\s*\/?>/, `<meta name="twitter:title" content="${title}">`);
+    }
+    if (description) {
+        html = html.replace(/<meta name="description" content=".*?"\s*\/?>/, `<meta name="description" content="${description}">`);
+        html = html.replace(/<meta property="og:description" content=".*?"\s*\/?>/, `<meta property="og:description" content="${description}">`);
+        html = html.replace(/<meta name="twitter:description" content=".*?"\s*\/?>/, `<meta name="twitter:description" content="${description}">`);
+    }
+    if (image) {
+        html = html.replace(/<meta property="og:image" content=".*?"\s*\/?>/, `<meta property="og:image" content="${image}">\n    <meta property="og:image:type" content="image/png">\n    <meta property="og:image:width" content="1200">\n    <meta property="og:image:height" content="630">`);
+        html = html.replace(/<meta name="twitter:image" content=".*?"\s*\/?>/, `<meta name="twitter:image" content="${image}">`);
+    }
+    if (type) {
+        html = html.replace(/<meta property="og:type" content=".*?"\s*\/?>/, `<meta property="og:type" content="${type}">`);
+    }
+    if (url) {
+        html = html.replace(/<meta property="og:url" content=".*?"\s*\/?>/, `<meta property="og:url" content="${url}">`);
+        if (html.includes('rel="canonical"')) {
+            html = html.replace(/rel="canonical" href=".*?"/, `rel="canonical" href="${url}"`);
+        } else {
+            html = html.replace('</head>', `<link rel="canonical" href="${url}" />\n</head>`);
+        }
+    }
+    if (icon) {
+        html = html.replace(/<link rel="icon"[^>]*>/, `<link rel="icon" type="image/jpeg" href="${icon}">`);
+        html = html.replace(/<link rel="shortcut icon"[^>]*>/, `<link rel="shortcut icon" type="image/jpeg" href="${icon}">`);
+        html = html.replace(/<link rel="apple-touch-icon"[^>]*>/, `<link rel="apple-touch-icon" href="${icon}">`);
+    }
+    return html;
+}
+
 async function getDynamicHtml(req, res) {
     const pathParts = req.path.split('/').filter(Boolean);
-    const isMovie = pathParts[0] === 'movie';
-    const isTv = pathParts[0] === 'tv';
-    const subjectId = pathParts[1];
+    const section = pathParts[0] || '';
+    const subjectId = pathParts[1] || '';
+
+    const isMovie = section === 'movie';
+    const isTv = section === 'tv' || section === 'series';
+    const isStaff = section === 'staff';
+    const isLive = section === 'live' || section === 'live-tv';
+    const isAnime = section === 'anime';
+    const isHome = pathParts.length === 0;
+
     let htmlPath = process.env.NODE_ENV === 'production' 
         ? path.join(__dirname, 'dist', 'index.html')
         : path.join(__dirname, 'index.html');
@@ -566,8 +690,11 @@ async function getDynamicHtml(req, res) {
         return res.sendFile(htmlPath);
     }
     let html = fs.readFileSync(htmlPath, 'utf8');
-    if ((isMovie || isTv) && subjectId && subjectId.length > 5) {
-        try {
+    const hostUrl = `${req.protocol}://${req.get('host')}`;
+    const fullUrl = `${hostUrl}${req.originalUrl}`;
+
+    try {
+        if ((isMovie || isTv) && subjectId && subjectId.length > 5) {
             const apiUrl = `https://h5-api.aoneroom.com/wefeed-h5api-bff/detail?subjectId=${subjectId}`;
             let response;
             let retries = 2;
@@ -577,11 +704,12 @@ async function getDynamicHtml(req, res) {
                         headers: {
                             'Origin': 'https://moviebox.ph',
                             'Referer': 'https://moviebox.ph/'
-                        }
+                        },
+                        signal: AbortSignal.timeout(4000)
                     });
                     if (response.ok) break;
                     if (response.status === 503 && retries > 0) {
-                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        await new Promise(resolve => setTimeout(resolve, 800));
                         retries--;
                         continue;
                     }
@@ -589,7 +717,7 @@ async function getDynamicHtml(req, res) {
                 } catch (e) {
                     if (retries > 0) {
                         retries--;
-                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        await new Promise(resolve => setTimeout(resolve, 800));
                         continue;
                     }
                     throw e;
@@ -599,39 +727,121 @@ async function getDynamicHtml(req, res) {
                 const data = await response.json();
                 if (data.code === 0 && data.data && data.data.subject) {
                     const movie = data.data.subject;
-                    const rawTitle = `${movie.title} | Watch Online Free - SLFLIX`;
+                    const isTvSeries = isTv || movie.subjectType === 2 || movie.type === 'TV Series';
+                    const rawTitle = isTvSeries 
+                        ? `${movie.title} | Stream TV Series Online Free - SLFLIX`
+                        : `${movie.title} | Watch Online Free - SLFLIX`;
                     const movieOwnDesc = (movie.description || '').trim();
                     const rawDescription = movieOwnDesc || `Watch ${movie.title} online free in HD. ${movie.genre || 'Stream now on SLFLIX'}.`;
                     const title = rawTitle.replace(/"/g, '&quot;');
-                    const description = rawDescription.replace(/"/g, '&quot;').replace(/\n/g, ' ').replace(/\r/g, '');
-                    const hostUrl = `${req.protocol}://${req.get('host')}`;
-                    const image = `${hostUrl}/api/og/${subjectId}.png`;
+                    const description = rawDescription.replace(/"/g, '&quot;').replace(/[\r\n]+/g, ' ');
+                    const image = `${hostUrl}/api/og/${isTvSeries ? 'tv' : 'movie'}/${subjectId}.png`;
                     const movieCoverUrl = movie.cover?.url || movie.thumbnail || `${hostUrl}/icons/slflix.png`;
-                    const url = `${hostUrl}${req.originalUrl}`;
-                    html = html.replace(/<title>.*?<\/title>/, `<title>${title}</title>`);
-                    html = html.replace(/<meta name="description" content=".*?"\s*\/?>/, `<meta name="description" content="${description}">`);
-                    html = html.replace(/<meta property="og:title" content=".*?"\s*\/?>/, `<meta property="og:title" content="${title}">`);
-                    html = html.replace(/<meta property="og:description" content=".*?"\s*\/?>/, `<meta property="og:description" content="${description}">`);
-                    html = html.replace(/<meta property="og:image" content=".*?"\s*\/?>/, `<meta property="og:image" content="${image}">\n    <meta property="og:image:type" content="image/png">\n    <meta property="og:image:width" content="1200">\n    <meta property="og:image:height" content="630">`);
-                    html = html.replace(/<meta property="og:type" content=".*?"\s*\/?>/, `<meta property="og:type" content="${isTv ? 'video.tv_show' : 'video.movie'}">`);
-                    html = html.replace(/<meta property="og:url" content=".*?"\s*\/?>/, `<meta property="og:url" content="${url}">`);
-                    html = html.replace(/<meta name="twitter:title" content=".*?"\s*\/?>/, `<meta name="twitter:title" content="${title}">`);
-                    html = html.replace(/<meta name="twitter:description" content=".*?"\s*\/?>/, `<meta name="twitter:description" content="${description}">`);
-                    html = html.replace(/<meta name="twitter:image" content=".*?"\s*\/?>/, `<meta name="twitter:image" content="${image}">`);
-                    html = html.replace(/<link rel="icon"[^>]*>/, `<link rel="icon" type="image/jpeg" href="${movieCoverUrl}">`);
-                    html = html.replace(/<link rel="shortcut icon"[^>]*>/, `<link rel="shortcut icon" type="image/jpeg" href="${movieCoverUrl}">`);
-                    html = html.replace(/<link rel="apple-touch-icon"[^>]*>/, `<link rel="apple-touch-icon" href="${movieCoverUrl}">`);
-                    if (html.includes('rel="canonical"')) {
-                        html = html.replace(/rel="canonical" href=".*?"/, `rel="canonical" href="${url}"`);
-                    } else {
-                        html = html.replace('</head>', `<link rel="canonical" href="${url}" />\n</head>`);
+
+                    // Cache staff members for future staff page requests
+                    if (movie.staffList || movie.staffs || movie.actors) {
+                        const list = movie.staffList || movie.staffs || movie.actors || [];
+                        list.forEach(s => {
+                            const sId = String(s.staffId || s.id || '');
+                            if (sId) {
+                                staffMap.set(sId, {
+                                    name: s.name || s.enName || '',
+                                    avatar: s.avatar?.url || s.avatar || s.photo || '',
+                                    role: s.role || 'Actor'
+                                });
+                            }
+                        });
                     }
+
+                    html = injectSeoTags(html, {
+                        title,
+                        description,
+                        image,
+                        icon: movieCoverUrl,
+                        url: fullUrl,
+                        type: isTvSeries ? 'video.tv_show' : 'video.movie'
+                    });
                 }
             }
-        } catch (e) {
-            console.error('[SEO] Error fetching movie details:', e.message);
+        } else if (isStaff && subjectId) {
+            let staffInfo = staffMap.get(subjectId);
+            if (!staffInfo) {
+                try {
+                    const sRes = await fetch(`https://api.omegatech.app/api/movie/MovieBox-pro?action=staff&staffId=${encodeURIComponent(subjectId)}&page=1`, {
+                        signal: AbortSignal.timeout(3000)
+                    });
+                    if (sRes.ok) {
+                        const sData = await sRes.json();
+                        if (sData.data?.staffName || sData.data?.name) {
+                            staffInfo = {
+                                name: sData.data.staffName || sData.data.name,
+                                avatar: sData.data.avatar || sData.data.photo || '',
+                                role: 'Actor'
+                            };
+                            staffMap.set(subjectId, staffInfo);
+                        }
+                    }
+                } catch (e) {}
+            }
+
+            const staffName = staffInfo?.name || 'Celebrity Talent';
+            const title = `${staffName} | Filmography & Works - SLFLIX`.replace(/"/g, '&quot;');
+            const description = `Explore all movies, series, and releases starring ${staffName} on SLFLIX. Watch online free in ultra-high definition.`.replace(/"/g, '&quot;');
+            const image = `${hostUrl}/api/og/staff/${subjectId}.png?name=${encodeURIComponent(staffName)}`;
+            const iconUrl = staffInfo?.avatar || `${hostUrl}/icons/slflix.png`;
+
+            html = injectSeoTags(html, {
+                title,
+                description,
+                image,
+                icon: iconUrl,
+                url: fullUrl,
+                type: 'profile'
+            });
+        } else if (isLive) {
+            const title = 'Live TV Online Free | 24/7 Global Channels & Sports - SLFLIX';
+            const description = 'Stream over 1,500+ premium live television channels, sports, and global news free in HD with zero delay on SLFLIX.';
+            const image = `${hostUrl}/api/og/live.png`;
+
+            html = injectSeoTags(html, {
+                title,
+                description,
+                image,
+                icon: `${hostUrl}/icons/slflix.png`,
+                url: fullUrl,
+                type: 'video.other'
+            });
+        } else if (isAnime) {
+            const title = 'Watch Anime Online Free in HD | Sub & Dub - SLFLIX';
+            const description = 'Stream popular anime series, movies, and simulcasts with English sub and dub in 1080p HD on SLFLIX.';
+            const image = `${hostUrl}/api/og/anime.png`;
+
+            html = injectSeoTags(html, {
+                title,
+                description,
+                image,
+                icon: `${hostUrl}/icons/slflix.png`,
+                url: fullUrl,
+                type: 'video.tv_show'
+            });
+        } else if (isHome) {
+            const title = 'SLFLIX | Watch Free Movies, TV Series & Live Streams Online in 4K';
+            const description = 'Stream over 10,000+ blockbuster movies, binge-worthy TV series, anime, and live channels with zero ads and no registration.';
+            const image = `${hostUrl}/api/og/home.png`;
+
+            html = injectSeoTags(html, {
+                title,
+                description,
+                image,
+                icon: `${hostUrl}/icons/slflix.png`,
+                url: fullUrl,
+                type: 'website'
+            });
         }
+    } catch (e) {
+        console.error('[SEO] Error fetching dynamic details:', e.message);
     }
+
     if (process.env.NODE_ENV !== 'production' && global.viteServer) {
         try {
             html = await global.viteServer.transformIndexHtml(req.originalUrl, html);

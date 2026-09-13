@@ -122,16 +122,23 @@ const SubtitleManager: React.FC<SubtitleManagerProps> = ({
           track.label = sub.name || getLanguageName(sub.lang || sub.language || 'en');
           track.srclang = sub.lang || sub.language || 'en';
           track.id = index.toString();
-          if (sub.url) {
-            track.src = sub.url;
+          const isVttOrBlob = sub.url && (sub.url.startsWith('blob:') || sub.url.includes('.vtt') || sub.url.includes('/api/subtitle'));
+          const trackSrc = isVttOrBlob ? sub.url : (sub.proxyUrl || sub.url);
+          if (trackSrc) {
+            track.src = trackSrc;
           } else {
             const blob = new Blob(['WEBVTT\n\n'], { type: 'text/vtt' });
             track.src = URL.createObjectURL(blob);
           }
           track.default = index === activeSubtitle;
           track.onerror = () => {
+            if (sub.proxyUrl && track.src !== sub.proxyUrl && !track.src.endsWith(sub.proxyUrl)) {
+              console.warn(`[SubtitleManager] Retrying with proxy: ${sub.proxyUrl}`);
+              track.src = sub.proxyUrl;
+              return;
+            }
             if (!sub.url) return; 
-            console.warn(`[SubtitleManager] Failed to load subtitle: ${sub.url}`);
+            console.warn(`[SubtitleManager] Failed to load subtitle: ${track.src}`);
             retryCountRef.current++;
             if (retryCountRef.current < maxRetries) {
               setTimeout(injectTracks, 1000 * retryCountRef.current);

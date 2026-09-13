@@ -6,6 +6,8 @@ import SeasonSelector from './SeasonSelector';
 import BulkDownloadModal from './BulkDownloadModal';
 import VideoPlayerBulkModalWrapper from './VideoPlayerBulkModalWrapper';
 import { RetroTvError } from './RetroTvError';
+import { fetchAndParseSrt, SrtCue } from '../utils/srtParser';
+import { AudioSubtitleModal, AudioTrackItem } from './AudioSubtitleModal';
 interface VideoPlayerProps {
   title: string;
   subTitle?: string;
@@ -45,27 +47,21 @@ const convertSrtToVtt = (srtContent: string): string => {
   if (srtContent.trim().startsWith('WEBVTT')) {
     return srtContent;
   }
+  const normalized = srtContent.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const blocks = normalized.split(/\n\s*\n/);
   let vtt = 'WEBVTT\n\n';
-  const lines = srtContent.split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    let line = lines[i].trim();
-    if (!line) continue;
-    if (line.includes('-->')) {
-      line = line.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/, '$1.$2');
-      line = line.replace(/,/g, '.');
-      vtt += line + '\n';
-    } else if (!isNaN(Number(line)) && line.includes('\n')) {
-      continue;
-    } else {
-      line = line
-        .replace(/</g, '<')
-        .replace(/>/g, '>')
-        .replace(/&amp;/g, '&')
-        .replace(/"/g, '"')
-        .replace(/&#39;/g, "'")
-        .replace(/&apos;/g, "'");
-      vtt += line + '\n';
-    }
+  for (const block of blocks) {
+    const trimmed = block.trim();
+    if (!trimmed) continue;
+    const lines = trimmed.split('\n');
+    const convertedLines = lines.map(line => {
+      const l = line.trim();
+      if (l.includes('-->')) {
+        return l.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2').replace(/,/g, '.');
+      }
+      return l;
+    });
+    vtt += convertedLines.join('\n') + '\n\n';
   }
   return vtt;
 };
@@ -75,23 +71,25 @@ const convertSrtUrlToVttBlob = async (srtUrl: string): Promise<string> => {
     return vttBlobCache.get(srtUrl)!;
   }
   try {
-    let response;
+    let response: Response | undefined;
     try {
-      response = await fetch(srtUrl, {
-        headers: {
-          'Referer': 'https://123movienow.cc/',
-          'Origin': 'https://123movienow.cc'
-        }
-      });
+      response = await fetch(srtUrl);
     } catch (e) {
-      response = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(srtUrl)}`);
+      try {
+        response = await fetch(`/api/subtitle?url=${encodeURIComponent(srtUrl)}&format=raw`);
+      } catch (err) {}
     }
     if (!response || !response.ok) {
-      return srtUrl;
+      try {
+        response = await fetch(`/api/subtitle?url=${encodeURIComponent(srtUrl)}&format=raw`);
+      } catch (err) {}
+    }
+    if (!response || !response.ok) {
+      return `/api/subtitle?url=${encodeURIComponent(srtUrl)}`;
     }
     const srtContent = await response.text();
-    if (!srtContent.includes('-->')) {
-      return srtUrl;
+    if (!srtContent.includes('-->') && !srtContent.includes('WEBVTT')) {
+      return `/api/subtitle?url=${encodeURIComponent(srtUrl)}`;
     }
     const vttContent = convertSrtToVtt(srtContent);
     const blob = new Blob([vttContent], { type: 'text/vtt' });
@@ -99,7 +97,7 @@ const convertSrtUrlToVttBlob = async (srtUrl: string): Promise<string> => {
     vttBlobCache.set(srtUrl, blobUrl);
     return blobUrl;
   } catch (error) {
-    return srtUrl;
+    return `/api/subtitle?url=${encodeURIComponent(srtUrl)}`;
   }
 };
 const getYoutubeId = (url: string): string | null => {
@@ -269,6 +267,44 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
   const [dragTime, setDragTime] = useState(0);
   const wantsToPlayRef = useRef(true);
 
+  // SRT Direct Overlay Subtitle Engine
+  const [activeCues, setActiveCues] = useState<SrtCue[]>([]);
+  const [activeSubtitleCue, setActiveSubtitleCue] = useState<string | null>(null);
+  const [subtitleOffset, setSubtitleOffset] = useState<number>(0);
+  const [subtitleFontSize, setSubtitleFontSize] = useState<'small' | 'medium' | 'large'>('medium');
+  const [showAudioSubtitleModal, setShowAudioSubtitleModal] = useState(false);
+
+  // Audio Tracks Management
+  const [audioTracks, setAudioTracks] = useState<AudioTrackItem[]>([]);
+  const [activeAudioTrack, setActiveAudioTrack] = useState<number>(-1);
+
+  // Seekbar Frame Preview
+  const previewFrameVideoRef = useRef<HTMLVideoElement>(null);
+  const [isHoveringSeek, setIsHoveringSeek] = useState(false);
+  const [hoverSeekPercent, setHoverSeekPercent] = useState(0);
+  const [hoverSeekTime, setHoverSeekTime] = useState(0);
+
+  // Desktop HUD Toast
+  const [hudToast, setHudToast] = useState<{ message: string; icon?: string } | null>(null);
+  const hudToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Mobile Tap / Multi-Tap Gestures (+10s, +20s, +30s...)
+  const [tapFeedback, setTapFeedback] = useState<{ side: 'left' | 'right'; count: number; seconds: number } | null>(null);
+  const lastTapRef = useRef<{ side: 'left' | 'right' | 'center'; time: number; count: number } | null>(null);
+  const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tapFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Prevent controls fight
+  const isHoveringControlsRef = useRef(false);
+
+  const showHudToast = useCallback((message: string, icon?: string) => {
+    setHudToast({ message, icon });
+    if (hudToastTimerRef.current) clearTimeout(hudToastTimerRef.current);
+    hudToastTimerRef.current = setTimeout(() => {
+      setHudToast(null);
+    }, 1400);
+  }, []);
+
   const attemptPlay = useCallback(() => { 
     const video = videoRef.current; 
     if (!video || !wantsToPlayRef.current) return; 
@@ -284,6 +320,45 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
       });
     }
   }, []);
+
+  // Fetch & Parse raw SRT file whenever activeSubtitle changes
+  useEffect(() => {
+    if (subtitles.length === 0 || activeSubtitle < 0) {
+      setActiveCues([]);
+      setActiveSubtitleCue(null);
+      return;
+    }
+    const sub = subtitles[activeSubtitle];
+    if (!sub || !sub.url) return;
+
+    let isMounted = true;
+    fetchAndParseSrt(sub.url).then(cues => {
+      if (isMounted) {
+        setActiveCues(cues);
+      }
+    }).catch(err => {
+      console.warn('[VideoPlayer] Failed to parse SRT subtitles:', err);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeSubtitle, subtitles]);
+
+  // Sync active subtitle cue based on video playback currentTime + subtitleOffset
+  useEffect(() => {
+    if (activeSubtitle < 0 || activeCues.length === 0) {
+      if (activeSubtitleCue !== null) setActiveSubtitleCue(null);
+      return;
+    }
+    const effectiveTime = currentTime + subtitleOffset;
+    const cue = activeCues.find(c => effectiveTime >= c.start && effectiveTime <= c.end);
+    const text = cue ? cue.text : null;
+    if (text !== activeSubtitleCue) {
+      setActiveSubtitleCue(text);
+    }
+  }, [currentTime, subtitleOffset, activeCues, activeSubtitle, activeSubtitleCue]);
+
   useEffect(() => {
     const handleOffline = () => setNetworkState('offline');
     const handleOnline = () => {
@@ -300,6 +375,7 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
       window.removeEventListener('online', handleOnline);
     };
   }, [playing, attemptPlay]);
+
   useEffect(() => {
     let timer: NodeJS.Timeout;
     if (showNextCountdown && countdown > 0) {
@@ -310,6 +386,7 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
     }
     return () => clearTimeout(timer);
   }, [showNextCountdown, countdown, onPlayNext]);
+
   useEffect(() => {
     if (subtitles.length === 0 || activeSubtitle === -1) return;
     const convertActiveSubtitle = async () => {
@@ -329,35 +406,144 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
     };
     convertActiveSubtitle();
   }, [subtitles, activeSubtitle, convertedSubUrls]);
+
+  const toggleSubtitles = useCallback(() => {
+    if (activeSubtitle >= 0) {
+      setActiveSubtitle(-1);
+      showHudToast('Subtitles Off', 'fa-solid fa-closed-captioning');
+    } else if (subtitles.length > 0) {
+      const best = findBestSubtitle(subtitles);
+      const target = best >= 0 ? best : 0;
+      setActiveSubtitle(target);
+      const name = subtitles[target]?.name || 'English';
+      showHudToast(`Subtitles: ${name}`, 'fa-solid fa-closed-captioning');
+    } else {
+      showHudToast('No subtitles available', 'fa-solid fa-circle-exclamation');
+    }
+  }, [activeSubtitle, subtitles, showHudToast]);
+
+  const handleAudioTrackChange = useCallback((index: number) => {
+    setActiveAudioTrack(index);
+    if (hlsRef.current && index >= 0) {
+      hlsRef.current.audioTrack = index;
+    }
+    const name = audioTracks[index]?.name || `Track ${index + 1}`;
+    showHudToast(`Audio: ${name}`, 'fa-solid fa-volume-high');
+  }, [audioTracks, showHudToast]);
+
+  const toggleFullscreen = useCallback(() => {
+    if (locked) return;
+    if (!document.fullscreenElement && containerRef.current) {
+      containerRef.current.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
+    }
+  }, [locked]);
+
+  const togglePlay = useCallback(() => { 
+    if (locked) return; 
+    if (videoRef.current) {
+      if (videoRef.current.paused) {
+        wantsToPlayRef.current = true;
+        attemptPlay();
+      } else {
+        wantsToPlayRef.current = false;
+        videoRef.current.pause();
+      }
+    }
+  }, [locked, attemptPlay]);
+
+  const skip = useCallback((seconds: number) => { 
+    if (videoRef.current && !locked && !isLive) {
+      const newTime = Math.max(0, Math.min(videoRef.current.currentTime + seconds, duration || Infinity));
+      videoRef.current.currentTime = newTime;
+      setCurrentTime(newTime);
+    } 
+  }, [locked, isLive, duration]);
+
+  const toggleMute = useCallback(() => {
+    setIsMuted(prev => !prev);
+  }, []);
+
+  const adjustVolume = useCallback((delta: number) => {
+    setVolume(prev => {
+      const next = Math.max(0, Math.min(1, Math.round((prev + delta) * 10) / 10));
+      return next;
+    });
+    setIsMuted(false);
+  }, []);
+
+  // Desktop Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (minimized || locked) return;
+      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
+
       switch(e.key) {
         case ' ':
         case 'k':
+        case 'K':
           e.preventDefault();
           togglePlay();
+          showHudToast(playing ? 'Paused' : 'Playing', playing ? 'fa-solid fa-pause' : 'fa-solid fa-play');
           break;
         case 'ArrowRight':
+        case 'l':
+        case 'L':
+          e.preventDefault();
           skip(10);
+          showHudToast('+10s', 'fa-solid fa-rotate-right');
           break;
         case 'ArrowLeft':
+        case 'j':
+        case 'J':
+          e.preventDefault();
           skip(-10);
+          showHudToast('-10s', 'fa-solid fa-rotate-left');
           break;
         case 'f':
+        case 'F':
+          e.preventDefault();
           toggleFullscreen();
+          showHudToast(!document.fullscreenElement ? 'Fullscreen' : 'Exit Fullscreen', 'fa-solid fa-expand');
           break;
         case 'm':
+        case 'M':
+          e.preventDefault();
           toggleMute();
+          showHudToast(!isMuted ? 'Muted' : 'Unmuted', !isMuted ? 'fa-solid fa-volume-xmark' : 'fa-solid fa-volume-high');
+          break;
+        case 'c':
+        case 'C':
+          e.preventDefault();
+          toggleSubtitles();
           break;
         case 'ArrowUp':
+          e.preventDefault();
           adjustVolume(0.1);
+          showHudToast(`Volume ${Math.round(Math.min(1, volume + 0.1) * 100)}%`, 'fa-solid fa-volume-high');
           break;
         case 'ArrowDown':
+          e.preventDefault();
           adjustVolume(-0.1);
+          showHudToast(`Volume ${Math.round(Math.max(0, volume - 0.1) * 100)}%`, 'fa-solid fa-volume-low');
+          break;
+        case '0': case '1': case '2': case '3': case '4':
+        case '5': case '6': case '7': case '8': case '9':
+          if (duration > 0 && !isLive) {
+            e.preventDefault();
+            const pct = parseInt(e.key, 10) / 10;
+            const targetTime = pct * duration;
+            if (videoRef.current) {
+              videoRef.current.currentTime = targetTime;
+              setCurrentTime(targetTime);
+              showHudToast(`Seek: ${Math.round(pct * 100)}%`, 'fa-solid fa-forward');
+            }
+          }
           break;
         case 'Escape':
-          if (showSeasonSelector) setShowSeasonSelector(false);
+          if (showAudioSubtitleModal) setShowAudioSubtitleModal(false);
+          else if (showSeasonSelector) setShowSeasonSelector(false);
           else if (showSettings) setShowSettings(false);
           else if (showSourceSelect) setShowSourceSelect(false);
           else onClose();
@@ -373,7 +559,8 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
       window.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
     };
-  }, [playing, minimized, locked, showSettings, showSourceSelect, showSeasonSelector]);
+  }, [playing, minimized, locked, showSettings, showSourceSelect, showSeasonSelector, showAudioSubtitleModal, isMuted, volume, duration, isLive, togglePlay, skip, toggleFullscreen, toggleMute, toggleSubtitles, adjustVolume, onClose, showHudToast]);
+
   useEffect(() => {
     if (subtitles.length > 0 && activeSubtitle === -1) {
       const bestSubtitle = findBestSubtitle(subtitles);
@@ -382,14 +569,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
       }
     }
   }, [subtitles]);
-  const toggleFullscreen = useCallback(() => {
-    if (locked) return;
-    if (!document.fullscreenElement && containerRef.current) {
-      containerRef.current.requestFullscreen().catch(() => {});
-    } else {
-      document.exitFullscreen().catch(() => {});
-    }
-  }, [locked]);
   const updateBuffered = useCallback(() => {
     const video = videoRef.current;
     if (video && video.buffered.length > 0) {
@@ -418,6 +597,14 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         setIsBuffering(false);
+        if (hls.audioTracks && hls.audioTracks.length > 0) {
+          setAudioTracks(hls.audioTracks.map((t, idx) => ({
+            id: idx,
+            name: t.name || `Audio Track ${idx + 1}`,
+            lang: t.lang
+          })));
+          setActiveAudioTrack(hls.audioTrack);
+        }
         const video = videoRef.current;
         if (video) {
           if (savedTimeRef.current > 0) {
@@ -617,37 +804,119 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
     if (minimized) return;
     setShowControls(true);
     if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
-    if (!locked && (playing || isDragging)) {
+    if (!locked && (playing || isDragging) && !isHoveringControlsRef.current && !showSettings && !showSourceSelect && !showSeasonSelector && !showAudioSubtitleModal) {
       controlsTimeoutRef.current = setTimeout(() => { 
-        if (!showSettings && !showSourceSelect && !showSeasonSelector && !isDragging) setShowControls(false); 
-      }, 3000);
+        if (!isHoveringControlsRef.current && !showSettings && !showSourceSelect && !showSeasonSelector && !showAudioSubtitleModal && !isDragging) {
+          setShowControls(false); 
+        }
+      }, 3500);
     }
-  }, [minimized, locked, playing, showSettings, showSourceSelect, showSeasonSelector, isDragging]);
-  const togglePlay = useCallback(() => { 
-    if (locked) return; 
-    if (videoRef.current) {
-      if (videoRef.current.paused) {
-        wantsToPlayRef.current = true;
-        attemptPlay();
-      } else {
-        wantsToPlayRef.current = false;
-        videoRef.current.pause();
+  }, [minimized, locked, playing, showSettings, showSourceSelect, showSeasonSelector, showAudioSubtitleModal, isDragging]);
+
+  const handleSeekMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!duration || isLive || locked) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const rawX = e.clientX - rect.left;
+    const percent = Math.max(0, Math.min(100, (rawX / rect.width) * 100));
+    const time = (percent / 100) * duration;
+    setHoverSeekPercent(percent);
+    setHoverSeekTime(time);
+    setIsHoveringSeek(true);
+
+    if (previewFrameVideoRef.current && Math.abs(previewFrameVideoRef.current.currentTime - time) > 0.4) {
+      previewFrameVideoRef.current.currentTime = time;
+    }
+  }, [duration, isLive, locked]);
+
+  const handleVideoAreaTouchOrClick = useCallback((e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
+    if (locked) return;
+    const container = containerRef.current;
+    if (!container) return;
+
+    const rect = container.getBoundingClientRect();
+    let clientX = 0;
+    const isTouch = 'changedTouches' in e;
+    if (isTouch) {
+      const touchEv = e as React.TouchEvent;
+      if (!touchEv.changedTouches || touchEv.changedTouches.length === 0) return;
+      clientX = touchEv.changedTouches[0].clientX;
+    } else {
+      clientX = (e as React.MouseEvent).clientX;
+    }
+
+    const relativeX = clientX - rect.left;
+    const ratio = relativeX / rect.width;
+
+    let side: 'left' | 'right' | 'center' = 'center';
+    if (ratio < 0.38) {
+      side = 'left';
+    } else if (ratio > 0.62) {
+      side = 'right';
+    }
+
+    const now = Date.now();
+    const lastTap = lastTapRef.current;
+
+    // Check if double/multi tap within 480ms on left or right side
+    if (lastTap && (side === 'left' || side === 'right') && lastTap.side === side && (now - lastTap.time) < 480) {
+      if (singleTapTimerRef.current) {
+        clearTimeout(singleTapTimerRef.current);
+        singleTapTimerRef.current = null;
       }
+
+      const newCount = lastTap.count + 1;
+      const additionalSeconds = 10;
+      const totalSeconds = newCount * additionalSeconds;
+
+      lastTapRef.current = { side, time: now, count: newCount };
+
+      if (side === 'left') {
+        skip(-additionalSeconds);
+      } else {
+        skip(additionalSeconds);
+      }
+
+      setTapFeedback({ side, count: newCount, seconds: totalSeconds });
+
+      if (tapFeedbackTimerRef.current) {
+        clearTimeout(tapFeedbackTimerRef.current);
+      }
+      tapFeedbackTimerRef.current = setTimeout(() => {
+        setTapFeedback(null);
+        lastTapRef.current = null;
+      }, 750);
+
+      return;
     }
-  }, [locked, attemptPlay]);
-  const skip = useCallback((seconds: number) => { 
-    if (videoRef.current && !locked && !isLive) {
-      const newTime = Math.max(0, Math.min(videoRef.current.currentTime + seconds, duration || Infinity));
-      videoRef.current.currentTime = newTime;
-      setCurrentTime(newTime);
-    } 
-  }, [locked, isLive, duration]);
+
+    // First tap or center tap
+    lastTapRef.current = { side, time: now, count: 1 };
+
+    if (side === 'center' || !isTouch) {
+      if (!isTouch) {
+        togglePlay();
+      } else {
+        setShowControls(prev => !prev);
+      }
+      lastTapRef.current = null;
+    } else {
+      if (singleTapTimerRef.current) {
+        clearTimeout(singleTapTimerRef.current);
+      }
+      singleTapTimerRef.current = setTimeout(() => {
+        setShowControls(prev => !prev);
+        lastTapRef.current = null;
+      }, 280);
+    }
+  }, [locked, skip, togglePlay]);
+
   const cycleSpeed = useCallback(() => { 
     const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2];
     const currentIndex = speeds.indexOf(playbackSpeed);
     const nextIndex = (currentIndex + 1) % speeds.length;
     setPlaybackSpeed(speeds[nextIndex]);
   }, [playbackSpeed]);
+
   const handleDownload = useCallback((source: VideoSource) => { 
     const link = source.download || source.direct || source.stream; 
     if (link) {
@@ -660,12 +929,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
       document.body.removeChild(anchor);
     }
   }, []);
-  const toggleMute = useCallback(() => setIsMuted(!isMuted), [isMuted]);
-  const adjustVolume = useCallback((delta: number) => {
-    const newVol = Math.max(0, Math.min(1, volume + delta));
-    setVolume(newVol);
-    if (newVol > 0 && isMuted) setIsMuted(false);
-  }, [volume, isMuted]);
   const handleProgressClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!progressRef.current || !duration || locked) return;
     const rect = progressRef.current.getBoundingClientRect();
@@ -842,6 +1105,80 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
         }}
       >
       </video>
+
+      {/* Hidden preview video for seekbar frame previews */}
+      {sources[activeSourceIndex]?.stream && !isLive && (
+        <video
+          ref={previewFrameVideoRef}
+          src={sources[activeSourceIndex].stream}
+          preload="auto"
+          muted
+          playsInline
+          className="hidden"
+        />
+      )}
+
+      {/* Video Area Gesture & Double-Tap Interactive Layer */}
+      <div 
+        className="absolute inset-0 z-20 cursor-pointer select-none"
+        onClick={handleVideoAreaTouchOrClick}
+        onTouchEnd={handleVideoAreaTouchOrClick}
+      />
+
+      {/* Mobile Multi-Tap Dynamic Feedback Overlay (+10s, +20s, +30s...) */}
+      {tapFeedback && (
+        <div className={`absolute inset-y-0 ${tapFeedback.side === 'left' ? 'left-0 w-1/2' : 'right-0 w-1/2'} z-40 pointer-events-none flex items-center justify-center animate-fade-in`}>
+          <div className="flex flex-col items-center justify-center bg-black/75 backdrop-blur-md px-6 py-4 rounded-3xl border border-primary/40 shadow-2xl scale-110 transition-transform">
+            <div className="flex items-center gap-2 text-primary text-2xl mb-1">
+              {tapFeedback.side === 'left' ? (
+                <>
+                  <i className="fa-solid fa-backward text-xl animate-pulse"></i>
+                  <span className="font-mono font-black">-{tapFeedback.seconds}s</span>
+                </>
+              ) : (
+                <>
+                  <span className="font-mono font-black">+{tapFeedback.seconds}s</span>
+                  <i className="fa-solid fa-forward text-xl animate-pulse"></i>
+                </>
+              )}
+            </div>
+            <span className="text-[11px] font-bold text-white uppercase tracking-wider">
+              {tapFeedback.seconds} seconds
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Direct SRT Subtitle Overlay */}
+      {activeSubtitleCue && !minimized && (
+        <div 
+          className={`absolute left-1/2 -translate-x-1/2 text-center pointer-events-none z-30 transition-all duration-200 px-4 max-w-[92%] md:max-w-[80%] ${
+            showControls ? 'bottom-24 md:bottom-28' : 'bottom-8 md:bottom-12'
+          }`}
+        >
+          <div className={`inline-block bg-black/85 text-white font-semibold rounded-xl shadow-2xl tracking-wide select-none leading-relaxed border border-white/10 backdrop-blur-[2px] px-3.5 py-1.5 ${
+            subtitleFontSize === 'small' 
+              ? 'text-sm md:text-base' 
+              : subtitleFontSize === 'large' 
+                ? 'text-xl md:text-2xl lg:text-3xl' 
+                : 'text-base md:text-xl lg:text-2xl'
+          }`}>
+            {activeSubtitleCue.split('\n').map((line, idx) => (
+              <div key={idx} className="drop-shadow-[0_2px_4px_rgba(0,0,0,0.95)]">
+                {line}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Desktop Keyboard HUD Toast Feedback */}
+      {hudToast && (
+        <div className="absolute top-8 left-1/2 -translate-x-1/2 z-[200] bg-black/90 backdrop-blur-md border border-white/20 text-white px-5 py-2.5 rounded-2xl text-sm font-bold flex items-center gap-3 shadow-2xl animate-fade-in pointer-events-none">
+          {hudToast.icon && <i className={`${hudToast.icon} text-primary text-base`}></i>}
+          <span>{hudToast.message}</span>
+        </div>
+      )}
       
       {needsUserGesture && !minimized && (
         <div className="absolute inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -1058,8 +1395,16 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
           </div>
         </div>
       )}
-      <div className={`absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-black/80 transition-opacity flex flex-col justify-between ${showControls && !locked && !showSettings && !showSourceSelect ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-        <div className="p-4 flex justify-between items-start">
+      <div 
+        className={`absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-black/80 transition-opacity flex flex-col justify-between z-30 ${showControls && !locked && !showSettings && !showSourceSelect && !showAudioSubtitleModal ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        onMouseEnter={() => { isHoveringControlsRef.current = true; }}
+        onMouseLeave={() => { isHoveringControlsRef.current = false; }}
+      >
+        <div 
+          className="p-4 flex justify-between items-start pointer-events-auto"
+          onMouseEnter={() => { isHoveringControlsRef.current = true; }}
+          onMouseLeave={() => { isHoveringControlsRef.current = false; }}
+        >
           <div className="flex items-center gap-3">
             <button 
               onClick={onClose} 
@@ -1121,9 +1466,45 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
           </button>
         </div>
         {!minimized && (
-          <div className="p-4 space-y-3">
+          <div 
+            className="p-4 space-y-3 pointer-events-auto"
+            onMouseEnter={() => { isHoveringControlsRef.current = true; }}
+            onMouseLeave={() => { isHoveringControlsRef.current = false; }}
+          >
             {!isLive && (
-              <div className="relative w-full h-6 flex items-center group">
+              <div 
+                className="relative w-full h-8 flex items-center group cursor-pointer"
+                onMouseMove={handleSeekMouseMove}
+                onMouseEnter={() => setIsHoveringSeek(true)}
+                onMouseLeave={() => setIsHoveringSeek(false)}
+              >
+                {/* Floating Seekbar Live Frame Preview Card */}
+                {isHoveringSeek && duration > 0 && (
+                  <div 
+                    className="absolute bottom-9 pointer-events-none z-50 flex flex-col items-center -translate-x-1/2 transition-all duration-75"
+                    style={{ left: `clamp(85px, ${hoverSeekPercent}%, calc(100% - 85px))` }}
+                  >
+                    <div className="w-36 h-20 md:w-44 md:h-24 bg-black/95 rounded-xl overflow-hidden border border-primary/50 shadow-2xl relative flex items-center justify-center">
+                      <video
+                        src={sources[activeSourceIndex]?.stream}
+                        muted
+                        playsInline
+                        className="w-full h-full object-cover"
+                        ref={el => {
+                          if (el && Math.abs(el.currentTime - hoverSeekTime) > 0.4) {
+                            el.currentTime = hoverSeekTime;
+                          }
+                        }}
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent pointer-events-none" />
+                      <span className="absolute bottom-1 px-2 py-0.5 bg-black/80 backdrop-blur-sm rounded text-[11px] font-mono font-bold text-white shadow">
+                        {formatTime(hoverSeekTime)}
+                      </span>
+                    </div>
+                    <div className="w-2.5 h-2.5 bg-black rotate-45 border-r border-b border-primary/40 -mt-1 shadow" />
+                  </div>
+                )}
+
                 <div className="absolute w-full h-1.5 bg-white/20 rounded-full overflow-hidden">
                   <div 
                     className="absolute h-full bg-white/40 rounded-full" 
@@ -1172,7 +1553,40 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
                 )}
                 {isLive && <span className="text-red-500 font-bold">LIVE</span>}
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 md:gap-3">
+                {/* Quick CC Subtitles Toggle Button */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleSubtitles();
+                  }}
+                  className={`w-7 h-7 md:w-8 md:h-8 rounded-lg flex items-center justify-center transition-all ${
+                    activeSubtitle >= 0 
+                      ? 'bg-primary text-black font-extrabold shadow-md shadow-primary/30' 
+                      : 'text-gray-400 hover:text-white hover:bg-white/10'
+                  }`}
+                  title="Toggle Subtitles (C)"
+                >
+                  <span className="text-[11px] font-black tracking-tighter">CC</span>
+                </button>
+
+                {/* Audio & Subtitles Selector Button */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowAudioSubtitleModal(true);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg flex items-center gap-1.5 text-xs font-bold transition-all ${
+                    activeSubtitle >= 0 || activeAudioTrack >= 0
+                      ? 'bg-white/15 text-white hover:bg-white/20' 
+                      : 'text-gray-400 hover:text-white hover:bg-white/10'
+                  }`}
+                  title="Audio & Subtitles"
+                >
+                  <i className="fa-solid fa-sliders text-xs"></i>
+                  <span className="hidden sm:inline">Audio & Subs</span>
+                </button>
+
                 <div className="relative flex items-center gap-2 group/vol">
                   <button onClick={toggleMute} className="hover:text-primary">
                     <i className={`fa-solid ${isMuted ? 'fa-volume-xmark' : volume > 0.5 ? 'fa-volume-high' : 'fa-volume-low'}`}></i>
@@ -1195,7 +1609,7 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
                 >
                   {playbackSpeed}x
                 </button>
-                <button onClick={toggleFullscreen} className="hover:text-primary">
+                <button onClick={toggleFullscreen} className="hover:text-primary" title="Fullscreen (F)">
                   <i className="fa-solid fa-expand"></i>
                 </button>
                 {('pictureInPictureEnabled' in document || (typeof HTMLVideoElement !== 'undefined' && 'webkitSupportsPresentationMode' in HTMLVideoElement.prototype)) && (
@@ -1282,6 +1696,31 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
           </span>
         </div>
       </div>
+
+      {showAudioSubtitleModal && (
+        <AudioSubtitleModal
+          isOpen={showAudioSubtitleModal}
+          onClose={() => setShowAudioSubtitleModal(false)}
+          audioTracks={audioTracks}
+          activeAudioTrack={activeAudioTrack}
+          onAudioTrackChange={handleAudioTrackChange}
+          subtitles={subtitles}
+          activeSubtitle={activeSubtitle}
+          onSubtitleChange={(index: number) => {
+            setActiveSubtitle(index);
+            if (index >= 0) {
+              const name = subtitles[index]?.name || 'Subtitles';
+              showHudToast(`Subtitles: ${name}`, 'fa-solid fa-closed-captioning');
+            } else {
+              showHudToast('Subtitles Off', 'fa-solid fa-closed-captioning');
+            }
+          }}
+          subtitleOffset={subtitleOffset}
+          onSubtitleOffsetChange={setSubtitleOffset}
+          subtitleFontSize={subtitleFontSize}
+          onSubtitleFontSizeChange={setSubtitleFontSize}
+        />
+      )}
     </div>
   );
 };

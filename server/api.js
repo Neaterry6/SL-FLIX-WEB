@@ -119,8 +119,16 @@ router.get('/search', async (req, res) => {
         try {
             const omegatechUrl = `https://api.omegatech.app/api/movie/MovieBox-pro?action=search&keyword=${encodeURIComponent(query)}&page=${page}`;
             const omegatechData = await fetchExternal(omegatechUrl);
-            const items = omegatechData?.data?.raw?.items || omegatechData?.data?.items;
-            if (omegatechData && (omegatechData.success || omegatechData.statusCode === 200) && items) {
+            const searchData = omegatechData?.data?.raw || omegatechData?.data || omegatechData?.results || {};
+            const items = Array.isArray(searchData.results)
+                ? searchData.results
+                : (Array.isArray(searchData.items)
+                    ? searchData.items
+                    : (Array.isArray(omegatechData?.results)
+                        ? omegatechData.results
+                        : (Array.isArray(omegatechData?.data) ? omegatechData.data : [])));
+
+            if (omegatechData && (omegatechData.success || omegatechData.statusCode === 200) && items && items.length > 0) {
                 const results = items.map(item => {
                     let cover = '';
                     if (typeof item.cover === 'string') cover = item.cover;
@@ -130,23 +138,32 @@ router.get('/search', async (req, res) => {
                     const sType = item.subjectType !== undefined ? item.subjectType : 1;
                     if (sType === 2 || sType === 'TV Series' || item.type === 'TV') type = 'TV Series';
                     else if (sType === 6) type = 'Music Video';
+                    else if (sType === 7) type = 'Short TV';
                     return {
                         id: String(item.subjectId || item.id || ''),
                         title: item.title || item.name || 'Unknown',
                         cover: cover,
                         releaseDate: String(item.releaseDate || ''),
                         genre: item.genre || '',
-                        rating: item.imdbRatingValue || item.imdbRating || '0',
+                        rating: String(item.imdbRatingValue || item.imdbRating || '0'),
                         description: item.description || '',
                         type: type,
-                        detailPath: item.detailPath || ''
+                        detailPath: item.detailPath || '',
+                        countryName: item.countryName || '',
+                        hasResource: item.hasResource !== undefined ? item.hasResource : true
                     };
                 });
-                const pager = omegatechData.data?.raw?.pager || omegatechData.data?.pager || {};
+                const pager = searchData.pager || {};
+                const hasMore = pager.hasMore !== undefined
+                    ? Boolean(pager.hasMore)
+                    : (searchData.hasMore !== undefined ? Boolean(searchData.hasMore) : false);
+                const totalCount = pager.totalCount !== undefined
+                    ? pager.totalCount
+                    : (searchData.total !== undefined ? searchData.total : results.length);
                 const response = {
                     results,
-                    hasMore: pager.hasMore || false,
-                    totalCount: pager.totalCount || results.length
+                    hasMore,
+                    totalCount
                 };
                 cache.set(cacheKey, response);
                 return res.json(response);
@@ -308,6 +325,64 @@ router.get('/movie/:id', async (req, res) => {
         });
     }
 });
+function convertSrtToVtt(srtContent) {
+    if (!srtContent) return 'WEBVTT\n\n';
+    if (srtContent.trim().startsWith('WEBVTT')) return srtContent;
+    const normalized = srtContent.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const lines = normalized.split('\n');
+    let vtt = 'WEBVTT\n\n';
+    for (let i = 0; i < lines.length; i++) {
+        let line = lines[i].trim();
+        if (!line) {
+            vtt += '\n';
+            continue;
+        }
+        if (line.includes('-->')) {
+            line = line.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
+            vtt += line + '\n';
+        } else {
+            vtt += line + '\n';
+        }
+    }
+    return vtt;
+}
+
+router.get('/subtitle', async (req, res) => {
+    try {
+        const subUrl = req.query.url;
+        if (!subUrl) {
+            return res.status(400).send('WEBVTT\n\n400 Missing subtitle URL');
+        }
+        const format = req.query.format || 'vtt';
+        const response = await fetch(subUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                'Accept': '*/*'
+            },
+            signal: AbortSignal.timeout(15000)
+        });
+        if (!response.ok) {
+            return res.status(response.status).send('WEBVTT\n\nFailed to fetch subtitle');
+        }
+        const text = await response.text();
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+        res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+        if (format === 'raw') {
+            res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+            return res.send(text);
+        }
+        const vtt = convertSrtToVtt(text);
+        res.setHeader('Content-Type', 'text/vtt; charset=utf-8');
+        return res.send(vtt);
+    } catch (e) {
+        console.error('[API] Subtitle proxy error:', e.message);
+        res.setHeader('Content-Type', 'text/vtt; charset=utf-8');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        return res.status(500).send('WEBVTT\n\nError loading subtitle');
+    }
+});
+
 router.get('/sources/:id', async (req, res) => {
     try {
         const subjectId = req.params.id;
@@ -316,38 +391,60 @@ router.get('/sources/:id', async (req, res) => {
         const detailPath = req.query.path || '';
         const title = req.query.title || '';
         const isMovie = req.query.type === 'Movie';
+
+        let resolvedPath = detailPath;
+        if (!resolvedPath && subjectId) {
+            try {
+                const detailRes = await fetchExternal(`https://h5-api.aoneroom.com/wefeed-h5api-bff/detail?subjectId=${subjectId}`);
+                resolvedPath = detailRes?.data?.subject?.detailPath || detailRes?.data?.detailPath || '';
+            } catch (e) {}
+        }
+
         const getStreamData = async (sid, dpath) => {
             const se = isMovie ? '0' : season;
             const ep = isMovie ? '0' : episode;
-            const url = `https://stream.omegatech.app/info?subjectId=${sid}&detailPath=${encodeURIComponent(dpath)}&se=${se}&ep=${ep}`;
-            return await fetchExternal(url);
+            // 1. Primary: MovieBox-pro action=download endpoint (returns fixed multi-language subtitles)
+            const downloadUrl = `https://api.omegatech.app/api/movie/MovieBox-pro?action=download&subjectId=${sid}&detailPath=${encodeURIComponent(dpath || '')}&se=${se}&ep=${ep}`;
+            let resData = await fetchExternal(downloadUrl);
+            if (resData && (resData.success || resData.statusCode === 200) && (resData.qualities?.length > 0 || resData.subtitles?.length > 0)) {
+                return resData;
+            }
+            // 2. Fallback: stream.omegatech.app/info
+            const infoUrl = `https://stream.omegatech.app/info?subjectId=${sid}&detailPath=${encodeURIComponent(dpath || '')}&se=${se}&ep=${ep}`;
+            const fallbackData = await fetchExternal(infoUrl);
+            if (fallbackData && (fallbackData.success || fallbackData.statusCode === 200) && (fallbackData.qualities?.length > 0 || fallbackData.subtitles?.length > 0)) {
+                return fallbackData;
+            }
+            return resData || fallbackData;
         };
-        let data = await getStreamData(subjectId, detailPath);
-        if ((!data || !data.success || !data.qualities || data.qualities.length === 0) && title) {
+
+        let data = await getStreamData(subjectId, resolvedPath);
+        if ((!data || (!data.qualities?.length && !data.subtitles?.length)) && title) {
             console.log(`[API] No sources for subjectId ${subjectId}, trying fallback search for "${title}"`);
             const omegatechUrl = `https://api.omegatech.app/api/movie/MovieBox-pro?action=search&keyword=${encodeURIComponent(title)}&page=1`;
             const omegatechData = await fetchExternal(omegatechUrl);
-            const items = omegatechData?.data?.raw?.items || omegatechData?.data?.items || [];
+            const items = omegatechData?.data?.results || omegatechData?.data?.raw?.items || omegatechData?.data?.items || [];
             for (const d of items) {
                 const newSid = String(d.subjectId || d.id || '');
                 const newPath = d.detailPath || '';
                 if (newSid && newSid !== subjectId) {
                     console.log(`[API] Found alternative subjectId ${newSid} for "${title}", trying...`);
                     const fallbackData = await getStreamData(newSid, newPath);
-                    if (fallbackData && fallbackData.success && fallbackData.qualities && fallbackData.qualities.length > 0) {
+                    if (fallbackData && (fallbackData.success || fallbackData.statusCode === 200) && (fallbackData.qualities?.length > 0 || fallbackData.subtitles?.length > 0)) {
                         data = fallbackData;
                         break;
                     }
                 }
             }
         }
-        if (data && data.success && data.qualities) {
+        if (data && (data.success || data.statusCode === 200) && (data.qualities || data.subtitles)) {
             const forceHttps = (url) => {
                 if (!url) return url;
                 if (typeof url !== 'string') return url;
                 return url.replace('http://', 'https://');
             };
-            const videos = data.qualities.map(q => ({
+            const rawQualities = Array.isArray(data.qualities) ? data.qualities : [];
+            const videos = rawQualities.map(q => ({
                 quality: q.quality,
                 url: forceHttps(q.streamUrl || q.url || q.stream || q.direct), 
                 download: forceHttps(q.downloadUrl || q.download || q.streamUrl || q.url || q.stream || q.direct),
@@ -372,9 +469,31 @@ router.get('/sources/:id', async (req, res) => {
                     size: bq.resolution ? `${bq.resolution}p` : 'Best'
                 });
             }
+
+            const rawSubs = Array.isArray(data.subtitles) ? data.subtitles : [];
+            const subtitles = rawSubs.map((s, idx) => {
+                const langCode = (s.languageCode || s.lang || 'en').trim();
+                const langName = (s.language || s.name || s.label || langCode).trim();
+                const rawUrl = s.url || s.streamUrl || '';
+                const secureUrl = rawUrl.replace(/^http:\/\//i, 'https://');
+                const proxyUrl = `/api/subtitle?url=${encodeURIComponent(secureUrl || rawUrl)}`;
+                return {
+                    id: s.id || `${langCode}-${idx}`,
+                    lang: langCode,
+                    language: langName,
+                    languageCode: langCode,
+                    name: langName,
+                    label: langName,
+                    url: secureUrl || rawUrl,
+                    proxyUrl: proxyUrl,
+                    size: s.size || '',
+                    delay: typeof s.delay === 'number' ? s.delay : 0
+                };
+            });
+
             return res.json({ 
                 results: videos, 
-                subtitles: [] 
+                subtitles: subtitles 
             });
         }
         res.json({ results: [], subtitles: [] });

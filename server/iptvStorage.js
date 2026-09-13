@@ -231,7 +231,6 @@ function loadFromDisk() {
   const loadedLogos = readJsonFile('logos.json');
   const loadedCategories = readJsonFile('categories.json');
   const loadedCountries = readJsonFile('countries.json');
-  const loadedGuides = readJsonFile('guides.json');
 
   if (Array.isArray(loadedChannels) && loadedChannels.length > 0) {
     iptvChannels = loadedChannels;
@@ -239,7 +238,6 @@ function loadFromDisk() {
     iptvLogos = Array.isArray(loadedLogos) ? loadedLogos : [];
     iptvCategories = Array.isArray(loadedCategories) ? loadedCategories : [];
     iptvCountries = Array.isArray(loadedCountries) ? loadedCountries : [];
-    iptvGuides = Array.isArray(loadedGuides) ? loadedGuides : [];
 
     buildNormalizedChannels();
     return true;
@@ -316,13 +314,19 @@ function checkAndAutoSync() {
 }
 
 function initIptvStorage() {
-  const loaded = loadFromDisk();
-  if (!loaded) {
-    console.log('[IPTV Storage] No local JSON files found on first boot. Triggering initial fetch...');
-    syncIptvDataFromApi();
-  } else {
-    checkAndAutoSync();
-  }
+  setImmediate(() => {
+    try {
+      const loaded = loadFromDisk();
+      if (!loaded) {
+        console.log('[IPTV Storage] No local JSON files found on first boot. Triggering initial fetch...');
+        syncIptvDataFromApi();
+      } else {
+        checkAndAutoSync();
+      }
+    } catch (err) {
+      console.warn('[IPTV Storage] Initialization error:', err.message);
+    }
+  });
 
   // Check every 6 hours if 2 days have passed
   setInterval(() => {
@@ -388,6 +392,10 @@ function getCountries() {
 }
 
 function getGuides() {
+  if (!iptvGuides || iptvGuides.length === 0) {
+    const loadedGuides = readJsonFile('guides.json');
+    iptvGuides = Array.isArray(loadedGuides) ? loadedGuides : [];
+  }
   return iptvGuides;
 }
 
