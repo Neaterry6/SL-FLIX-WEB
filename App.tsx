@@ -6,21 +6,21 @@ import { updateMetaTags, resetToHomeSEO } from './services/seo';
 import { CategoryData, MovieResult, VideoSource, Subtitle, ImdbSuggestion, MovieDub } from './types';
 import Loader from './components/Loader';
 import MovieCard from './components/MovieCard';
-import VideoPlayer from './components/VideoPlayer';
 import HomePage from './components/HomePage';
-import LiveTv from './components/LiveTv';
-import LiveTvStreamPlayer from './components/LiveTvStreamPlayer';
 import NetworkStatusNotifier from './components/NetworkStatusNotifier';
 import PWAInstallButton from './components/PWAInstallButton';
 import { Dock, DockIcon, DockItem, DockLabel } from "./components/Dock";
-import NewsView from './components/NewsView';
-import AnimeView from './components/AnimeView';
 import SearchView from './components/SearchView';
-import AdultView from './components/AdultView';
-import ApiDocsView from './components/ApiDocsView';
-import StaffView from './components/StaffView';
-import { NovelHubView } from './components/NovelHubView';
-import { WatchPartyView } from './components/WatchPartyView';
+const VideoPlayer = React.lazy(() => import('./components/VideoPlayer'));
+const LiveTv = React.lazy(() => import('./components/LiveTv'));
+const LiveTvStreamPlayer = React.lazy(() => import('./components/LiveTvStreamPlayer'));
+const NewsView = React.lazy(() => import('./components/NewsView'));
+const AnimeView = React.lazy(() => import('./components/AnimeView'));
+const AdultView = React.lazy(() => import('./components/AdultView'));
+const ApiDocsView = React.lazy(() => import('./components/ApiDocsView'));
+const StaffView = React.lazy(() => import('./components/StaffView'));
+const NovelHubView = React.lazy(() => import('./components/NovelHubView').then(m => ({ default: m.NovelHubView })));
+const WatchPartyView = React.lazy(() => import('./components/WatchPartyView').then(m => ({ default: m.WatchPartyView })));
 import { useHomeData } from './hooks/useHomeData';
 import { useMovieDetails } from './hooks/useMovieDetails';
 import { getOptimizedImageUrl, DEFAULT_FAVICON_FALLBACK } from './utils/image';
@@ -1347,38 +1347,40 @@ const App: React.FC = () => {
                 onToast={(m) => showToast(m, 'success')} 
             />
             {playerState.isOpen && (
-                playerState.isLive ? (
-                    <LiveTvStreamPlayer 
-                        channel={activeLiveChannel || {
-                            id: playerState.subjectId || 'live-channel',
-                            name: playerState.title || 'Live Stream',
-                            stream_url: playerState.sources[0]?.stream || '',
-                            logo: ''
-                        }}
-                        allChannels={allLiveChannels}
-                        onClose={() => {
-                            const currentPath = window.location.pathname;
-                            const newPath = currentPath.replace('/watch', '').replace('/trailer', '');
-                            setPlayerState(p => ({ ...p, isOpen: false })); 
-                            window.history.replaceState({}, '', newPath || '/');
-                        }}
-                        onChannelSelect={(selectedCh) => {
-                            handlePlayLiveChannel(selectedCh, allLiveChannels);
-                        }}
-                    />
-                ) : (
-                    <VideoPlayer 
-                        {...playerState} 
-                        onClose={() => { 
-                            const currentPath = window.location.pathname;
-                            const newPath = currentPath.replace('/watch', '').replace('/trailer', '');
-                            setPlayerState(p => ({ ...p, isOpen: false })); 
-                            window.history.replaceState({}, '', newPath);
-                        }}
-                        onProgressUpdate={handleProgressUpdate}
-                        onPlayNext={() => { if (playerState.nextEpisode) { setPlayerState(p => ({ ...p, isOpen: false })); const currentPath = window.location.pathname.replace('/watch', '').replace('/trailer', ''); window.history.replaceState({}, '', currentPath); setTimeout(() => handleFetchSources(playerState.nextEpisode!.title, playerState.nextEpisode!.season, playerState.nextEpisode!.episode), 300); } }}
-                    />
-                )
+                <Suspense fallback={<LoadingView />}>
+                    {playerState.isLive ? (
+                        <LiveTvStreamPlayer 
+                            channel={activeLiveChannel || {
+                                id: playerState.subjectId || 'live-channel',
+                                name: playerState.title || 'Live Stream',
+                                stream_url: playerState.sources[0]?.stream || '',
+                                logo: ''
+                            }}
+                            allChannels={allLiveChannels}
+                            onClose={() => {
+                                const currentPath = window.location.pathname;
+                                const newPath = currentPath.replace('/watch', '').replace('/trailer', '');
+                                setPlayerState(p => ({ ...p, isOpen: false })); 
+                                window.history.replaceState({}, '', newPath || '/');
+                            }}
+                            onChannelSelect={(selectedCh) => {
+                                handlePlayLiveChannel(selectedCh, allLiveChannels);
+                            }}
+                        />
+                    ) : (
+                        <VideoPlayer 
+                            {...playerState} 
+                            onClose={() => { 
+                                const currentPath = window.location.pathname;
+                                const newPath = currentPath.replace('/watch', '').replace('/trailer', '');
+                                setPlayerState(p => ({ ...p, isOpen: false })); 
+                                window.history.replaceState({}, '', newPath);
+                            }}
+                            onProgressUpdate={handleProgressUpdate}
+                            onPlayNext={() => { if (playerState.nextEpisode) { setPlayerState(p => ({ ...p, isOpen: false })); const currentPath = window.location.pathname.replace('/watch', '').replace('/trailer', ''); window.history.replaceState({}, '', currentPath); setTimeout(() => handleFetchSources(playerState.nextEpisode!.title, playerState.nextEpisode!.season, playerState.nextEpisode!.episode), 300); } }}
+                        />
+                    )}
+                </Suspense>
             )}
             <div className={playerState.isOpen ? 'hidden' : 'block'}>
                 {!isOnline && (
@@ -1413,79 +1415,81 @@ const App: React.FC = () => {
                     isSearchOpen={isSearchOpen} 
                 />
                 <main className="flex-1">
-                    {currentView === 'home' && (
-                        <div className="pb-24">
-                            <HomePage heroMovies={heroMovies} categoriesData={categoriesData} onMovieClick={handleMovieClick} onToplistClick={handleToplistClick} loading={homeLoading} />
-                        </div>
-                    )}
-                    {currentView === 'search' && (
-                        <SearchView 
-                            query={searchState.query}
-                            results={searchState.results}
-                            loading={searchState.loading}
-                            loadingMore={searchState.loadingMore}
-                            hasMore={searchState.hasMore}
-                            recentSearches={recentSearches}
-                            onSearch={(q) => handleSearch(q, 1)}
-                            onClearRecentSearches={clearRecentSearches}
-                            onRemoveRecentSearch={removeRecentSearch}
-                            onMovieClick={handleMovieClick}
-                            onNovelClick={(novelId) => {
-                                setSelectedNovelId(novelId);
-                                setCurrentView('novels');
-                                window.history.pushState({}, '', `/?novel=${novelId}`);
-                            }}
-                            loadMoreRef={searchLoadMoreRef}
-                        />
-                    )}
-                    {currentView === 'trending' && <TrendingView movies={trendingMovies} loading={trendingLoading} hasMore={trendingHasMore} onLoadMore={() => loadTrending(trendingPage + 1)} onMovieClick={handleMovieClick} />}
-                    {currentView === 'toplist' && <ToplistView initialCategory={toplistCategory} onMovieClick={handleMovieClick} onBack={() => { setCurrentView('home'); window.history.pushState({}, '', '/'); }} />}
-                    {currentView === 'live-tv' && <LiveTv onBack={() => { setCurrentView('home'); window.history.pushState({}, '', '/'); }} onPlay={handlePlayLiveChannel} />}
-                    {currentView === 'news' && <NewsView onPlayMatch={handlePlaySports} onPlayHighlight={handlePlayHighlight} />}
-                    {currentView === 'anime' && (
-                        <AnimeView 
-                            onBack={() => { 
-                                setCurrentView('home'); 
-                                window.history.pushState({}, '', '/'); 
-                                resetToHomeSEO(); 
-                            }} 
-                            onPlayStream={(title, sources, poster) => {
-                              setPlayerState({
-                                isOpen: true,
-                                title,
-                                poster,
-                                subjectId: 'anime-stream',
-                                sources: sources as any,
-                                subtitles: []
-                              });
-                            }}
-                        />
-                    )}
-                    {currentView === 'adult' && <AdultView onBack={() => { setCurrentView('home'); window.history.pushState({}, '', '/'); }} onPlayStream={(title, sources, poster) => {
-                      setPlayerState({
-                        isOpen: true,
-                        title,
-                        poster,
-                        subjectId: 'adult-stream',
-                        sources: sources as any,
-                        subtitles: []
-                      });
-                    }} />}
-                    {currentView === 'api-docs' && <ApiDocsView />}
-                    {currentView === 'novels' && (
-                        <NovelHubView 
-                            initialNovelId={selectedNovelId}
-                            onBack={() => { 
-                                setSelectedNovelId(null);
-                                setCurrentView('home'); 
-                                window.history.pushState({}, '', '/'); 
-                                resetToHomeSEO(); 
-                            }} 
-                        />
-                    )}
-                    {currentView === 'watch-party' && <WatchPartyView onBack={() => { setCurrentView('home'); window.history.pushState({}, '', '/'); resetToHomeSEO(); }} />}
-                    {currentView === 'staff' && selectedStaff && <StaffView staffId={selectedStaff.id} staffName={selectedStaff.name} staffAvatar={selectedStaff.avatar} onBack={handleBack} onMovieClick={handleMovieClick} />}
-                    {currentView === 'details' && selectedMovie && <DetailsView movie={selectedMovie} onBack={handleBack} onFetchSources={handleFetchSources} onPlayTrailer={handlePlayTrailer} onMovieClick={handleMovieClick} onDubClick={(d) => handleMovieClick({ title: "...", cover: "", thumbnail: "", type: selectedMovie.type, subjectId: d.subjectId, detailPath: d.detailPath })} onStaffClick={handleStaffClick} loading={loadingDetails} />}
+                    <Suspense fallback={<LoadingView />}>
+                        {currentView === 'home' && (
+                            <div className="pb-24">
+                                <HomePage heroMovies={heroMovies} categoriesData={categoriesData} onMovieClick={handleMovieClick} onToplistClick={handleToplistClick} loading={homeLoading} />
+                            </div>
+                        )}
+                        {currentView === 'search' && (
+                            <SearchView 
+                                query={searchState.query}
+                                results={searchState.results}
+                                loading={searchState.loading}
+                                loadingMore={searchState.loadingMore}
+                                hasMore={searchState.hasMore}
+                                recentSearches={recentSearches}
+                                onSearch={(q) => handleSearch(q, 1)}
+                                onClearRecentSearches={clearRecentSearches}
+                                onRemoveRecentSearch={removeRecentSearch}
+                                onMovieClick={handleMovieClick}
+                                onNovelClick={(novelId) => {
+                                    setSelectedNovelId(novelId);
+                                    setCurrentView('novels');
+                                    window.history.pushState({}, '', `/?novel=${novelId}`);
+                                }}
+                                loadMoreRef={searchLoadMoreRef}
+                            />
+                        )}
+                        {currentView === 'trending' && <TrendingView movies={trendingMovies} loading={trendingLoading} hasMore={trendingHasMore} onLoadMore={() => loadTrending(trendingPage + 1)} onMovieClick={handleMovieClick} />}
+                        {currentView === 'toplist' && <ToplistView initialCategory={toplistCategory} onMovieClick={handleMovieClick} onBack={() => { setCurrentView('home'); window.history.pushState({}, '', '/'); }} />}
+                        {currentView === 'live-tv' && <LiveTv onBack={() => { setCurrentView('home'); window.history.pushState({}, '', '/'); }} onPlay={handlePlayLiveChannel} />}
+                        {currentView === 'news' && <NewsView onPlayMatch={handlePlaySports} onPlayHighlight={handlePlayHighlight} />}
+                        {currentView === 'anime' && (
+                            <AnimeView 
+                                onBack={() => { 
+                                    setCurrentView('home'); 
+                                    window.history.pushState({}, '', '/'); 
+                                    resetToHomeSEO(); 
+                                }} 
+                                onPlayStream={(title, sources, poster) => {
+                                  setPlayerState({
+                                    isOpen: true,
+                                    title,
+                                    poster,
+                                    subjectId: 'anime-stream',
+                                    sources: sources as any,
+                                    subtitles: []
+                                  });
+                                }}
+                            />
+                        )}
+                        {currentView === 'adult' && <AdultView onBack={() => { setCurrentView('home'); window.history.pushState({}, '', '/'); }} onPlayStream={(title, sources, poster) => {
+                          setPlayerState({
+                            isOpen: true,
+                            title,
+                            poster,
+                            subjectId: 'adult-stream',
+                            sources: sources as any,
+                            subtitles: []
+                          });
+                        }} />}
+                        {currentView === 'api-docs' && <ApiDocsView />}
+                        {currentView === 'novels' && (
+                            <NovelHubView 
+                                initialNovelId={selectedNovelId}
+                                onBack={() => { 
+                                    setSelectedNovelId(null);
+                                    setCurrentView('home'); 
+                                    window.history.pushState({}, '', '/'); 
+                                    resetToHomeSEO(); 
+                                }} 
+                            />
+                        )}
+                        {currentView === 'watch-party' && <WatchPartyView onBack={() => { setCurrentView('home'); window.history.pushState({}, '', '/'); resetToHomeSEO(); }} />}
+                        {currentView === 'staff' && selectedStaff && <StaffView staffId={selectedStaff.id} staffName={selectedStaff.name} staffAvatar={selectedStaff.avatar} onBack={handleBack} onMovieClick={handleMovieClick} />}
+                        {currentView === 'details' && selectedMovie && <DetailsView movie={selectedMovie} onBack={handleBack} onFetchSources={handleFetchSources} onPlayTrailer={handlePlayTrailer} onMovieClick={handleMovieClick} onDubClick={(d) => handleMovieClick({ title: "...", cover: "", thumbnail: "", type: selectedMovie.type, subjectId: d.subjectId, detailPath: d.detailPath })} onStaffClick={handleStaffClick} loading={loadingDetails} />}
+                    </Suspense>
                 </main>
                 <Footer />
                 <div className="fixed bottom-4 left-0 w-full flex justify-center z-50 pointer-events-none px-4">

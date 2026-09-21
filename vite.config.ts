@@ -43,8 +43,8 @@ export default defineConfig(({ mode }) => {
           ]
         },
         workbox: {
-          maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+          maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
+          globPatterns: ['**/*.{js,css,html}'],
           runtimeCaching: [
             {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
@@ -109,19 +109,22 @@ export default defineConfig(({ mode }) => {
       assetsInlineLimit: 4096,
       reportCompressedSize: false,
       emptyOutDir: true,
-      chunkSizeWarningLimit: 600,
+      chunkSizeWarningLimit: 1200,
       rollupOptions: {
         output: {
           manualChunks(id) {
             if (id.includes('node_modules')) {
-              if (id.includes('react') || id.includes('react-dom') || id.includes('react-router-dom')) {
-                return 'vendor-react';
+              if (
+                id.includes('react') ||
+                id.includes('react-dom') ||
+                id.includes('react-router-dom') ||
+                id.includes('framer-motion') ||
+                id.includes('motion')
+              ) {
+                return 'vendor-framework';
               }
               if (id.includes('three') || id.includes('@paper-design')) {
                 return 'vendor-three';
-              }
-              if (id.includes('framer-motion') || id.includes('motion')) {
-                return 'vendor-motion';
               }
               if (id.includes('hls.js')) {
                 return 'vendor-hls';
@@ -129,7 +132,7 @@ export default defineConfig(({ mode }) => {
               if (id.includes('lucide-react')) {
                 return 'vendor-icons';
               }
-              return 'vendor-core';
+              return 'vendor-libs';
             }
           },
           chunkFileNames: isProduction ? 'assets/[hash].js' : 'assets/[name]-[hash].js',
