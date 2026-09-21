@@ -1,6 +1,5 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import terser from '@rollup/plugin-terser';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(({ mode }) => {
@@ -103,44 +102,52 @@ export default defineConfig(({ mode }) => {
     ],
     build: {
       outDir: 'dist',
-      sourcemap: false, // Always disabled in production
-      minify: 'terser',
-      target: 'es2020', // Fix ESM/strict mode issues
+      sourcemap: false,
+      minify: 'esbuild',
+      target: 'es2020',
       cssCodeSplit: true,
       assetsInlineLimit: 4096,
-      reportCompressedSize: false, // Faster builds
+      reportCompressedSize: false,
       emptyOutDir: true,
-      chunkSizeWarningLimit: 1000,
-      terserOptions: {
-        compress: {
-          drop_console: isProduction,
-          drop_debugger: isProduction,
-          pure_funcs: isProduction ? ['console.log', 'console.info', 'console.debug'] : [],
-        },
-        mangle: isProduction ? {
-          properties: false, // Fix ReactCurrentOwner error - don't mangle React internals
-        } : true,
-        format: {
-          comments: false,
-        },
-      },
+      chunkSizeWarningLimit: 600,
       rollupOptions: {
         output: {
-          manualChunks: {
-            'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-            'vendor-hls': ['hls.js'],
-            'vendor-icons': ['lucide-react'],
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('react') || id.includes('react-dom') || id.includes('react-router-dom')) {
+                return 'vendor-react';
+              }
+              if (id.includes('three') || id.includes('@paper-design')) {
+                return 'vendor-three';
+              }
+              if (id.includes('framer-motion') || id.includes('motion')) {
+                return 'vendor-motion';
+              }
+              if (id.includes('hls.js')) {
+                return 'vendor-hls';
+              }
+              if (id.includes('lucide-react')) {
+                return 'vendor-icons';
+              }
+              if (id.includes('jszip') || id.includes('file-saver')) {
+                return 'vendor-zip';
+              }
+              return 'vendor-core';
+            }
           },
-          // Obfuscated chunk names for production
           chunkFileNames: isProduction ? 'assets/[hash].js' : 'assets/[name]-[hash].js',
           entryFileNames: isProduction ? 'assets/[hash].js' : 'assets/[name]-[hash].js',
           assetFileNames: isProduction ? 'assets/[hash].[ext]' : 'assets/[name]-[hash].[ext]',
         },
       },
     },
+    esbuild: {
+      drop: isProduction ? ['console', 'debugger'] : [],
+      legalComments: 'none'
+    },
     optimizeDeps: {
       include: ['react', 'react-dom', 'hls.js', 'lucide-react'],
-      exclude: [], // Prevent dup React
+      exclude: [],
     },
     define: {
       __DEV__: !isProduction,
