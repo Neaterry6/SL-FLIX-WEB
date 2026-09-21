@@ -77,7 +77,7 @@ const EpisodeRow: React.FC<EpisodeRowProps> = ({
       {}
       <div className="relative w-32 h-18 rounded-lg overflow-hidden flex-shrink-0 bg-white/10">
         <LazyLoadImage
-          src={getOptimizedImageUrl(episode.thumbnail, 320)}
+          src={getOptimizedImageUrl(episode.thumbnail || '', 320)}
           alt={episode.title || `Episode ${episodeNumber}`}
           effect="blur"
           className={`
