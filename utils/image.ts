@@ -1,9 +1,13 @@
 export const DEFAULT_FAVICON_FALLBACK = '/icons/slflix.png';
 
-export const getOptimizedImageUrl = (url?: string, width: number = 300) => {
-    if (!url || !url.trim() || url === 'undefined' || url === 'null') {
+export const getOptimizedImageUrl = (url?: string, _width: number = 300) => {
+    if (!url || typeof url !== 'string' || !url.trim() || url === 'undefined' || url === 'null') {
         return DEFAULT_FAVICON_FALLBACK;
     }
-    if (url.startsWith('/') || url.includes('wsrv.nl')) return url;
-    return `https://wsrv.nl/?url=${encodeURIComponent(url)}&output=webp&w=${width}&q=80`;
+    const cleanUrl = url.trim();
+    // Upgrade insecure http to https where applicable
+    if (cleanUrl.startsWith('http://')) {
+        return cleanUrl.replace('http://', 'https://');
+    }
+    return cleanUrl;
 };

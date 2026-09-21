@@ -148,6 +148,18 @@ export const THEME_CONFIGS = {
         typeBadge: 'FREE STREAMING',
         ctaText: '▶ EXPLORE 10,000+ TITLES',
         avatarShape: 'rect'
+    },
+    novel: {
+        themeName: 'novel',
+        primary: '#38bdf8',
+        secondary: '#c084fc',
+        accent: '#f472b6',
+        bgDark1: '#070913',
+        bgDark2: '#121226',
+        tagline: 'SLFLIX NOVEL HUB • IMMERSIVE E-READER',
+        typeBadge: 'WEB NOVEL',
+        ctaText: '📖 START READING ONLINE',
+        avatarShape: 'circle'
     }
 };
 

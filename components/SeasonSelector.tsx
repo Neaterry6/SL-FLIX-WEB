@@ -151,6 +151,7 @@ const SeasonSelector: React.FC<SeasonSelectorProps> = ({
                   episodeNumber={episodeNumber}
                   isActive={expandedSeason === currentSeason && episodeNumber === currentEpisode}
                   isWatched={isWatched}
+                  coverImage={movie.cover || movie.thumbnail}
                   onClick={() => handleEpisodeClick(episodeNumber)}
                 />
               );
@@ -195,6 +196,7 @@ interface EpisodeItemProps {
   episodeNumber: number;
   isActive: boolean;
   isWatched?: boolean;
+  coverImage?: string;
   onClick: () => void;
 }
 const EpisodeItem: React.FC<EpisodeItemProps> = ({
@@ -202,17 +204,16 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
   episodeNumber,
   isActive,
   isWatched,
+  coverImage,
   onClick
 }) => {
   const [isHovered, setIsHovered] = useState(false);
-  const [imageLoaded, setImageLoaded] = useState(false);
   const itemRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (isActive && itemRef.current) {
       itemRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
   }, [isActive]);
-  const thumbnailUrl = `https://picsum.photos/seed/s${seasonNumber}e${episodeNumber}/320/180`;
   return (
     <button
       ref={itemRef}
@@ -231,20 +232,25 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
         }
       `}
     >
-      {}
-      <div className="relative w-20 h-12 rounded-lg overflow-hidden flex-shrink-0 bg-white/10">
-        <LazyLoadImage
-          src={getOptimizedImageUrl(thumbnailUrl, 150)}
-          alt={`Episode ${episodeNumber}`}
-          effect="blur"
-          className="w-full h-full object-cover"
-          wrapperClassName="w-full h-full"
-          onError={(e) => {
-            const target = e.target as HTMLImageElement;
-            target.style.display = 'none';
-          }}
-        />
-        {}
+      {/* Thumbnail or Sleek Icon badge */}
+      <div className="relative w-20 h-12 rounded-lg overflow-hidden flex-shrink-0 bg-white/10 flex items-center justify-center">
+        {coverImage ? (
+          <LazyLoadImage
+            src={getOptimizedImageUrl(coverImage, 150)}
+            alt={`Episode ${episodeNumber}`}
+            effect="blur"
+            className="w-full h-full object-cover"
+            wrapperClassName="w-full h-full"
+            onError={(e) => {
+              const target = e.target as HTMLImageElement;
+              target.style.display = 'none';
+            }}
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center bg-[#1e2038]">
+            <span className="text-xs font-mono font-bold text-cyan-400">EP {episodeNumber}</span>
+          </div>
+        )}
         <div className={`
           absolute inset-0 flex items-center justify-center bg-black/40
           transition-opacity duration-200
@@ -260,7 +266,6 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
           </div>
         </div>
       </div>
-      {}
       <div className="flex-1 text-left min-w-0">
         <div className={`
           text-sm font-medium truncate
@@ -285,7 +290,6 @@ const EpisodeItem: React.FC<EpisodeItemProps> = ({
           )}
         </div>
       </div>
-      {}
       <div className="flex items-center">
         {isActive ? (
           <div className="w-2 h-2 rounded-full bg-primary animate-pulse shadow-[0_0_5px_rgba(0,229,255,0.8)]" />

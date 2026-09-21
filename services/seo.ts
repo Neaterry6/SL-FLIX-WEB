@@ -254,6 +254,44 @@ export const getVideoSchema = (movie: MovieResult) => ({
         "userInteractionCount": "10000"
     }]
 });
+export const updateNovelSEO = (novel: { novelId: string; title: string; author?: string; summary?: string; cover?: string; score?: string; totalViews?: string }) => {
+    if (typeof document === 'undefined') return;
+    const title = `${novel.title} | Read Free Online - SLFLIX Novel Hub`;
+    const description = (novel.summary || `Read "${novel.title}" by ${novel.author || 'Author'} online free on SLFLIX Novel Hub. Immersive auto-scroll reading experience.`).slice(0, 300);
+    const hostUrl = `${window.location.protocol}//${window.location.host}`;
+    const image = `${hostUrl}/api/og/novel/${novel.novelId}.png?title=${encodeURIComponent(novel.title)}&author=${encodeURIComponent(novel.author || '')}&score=${encodeURIComponent(novel.score || '8.5')}`;
+    const url = window.location.href;
+
+    document.title = title;
+    if (novel.cover) updateFavicon(novel.cover);
+
+    const setMeta = (property: string, content: string, isName: boolean = false) => {
+        let el: HTMLMetaElement | null = isName 
+            ? document.querySelector(`meta[name="${property}"]`) as HTMLMetaElement
+            : document.querySelector(`meta[property="${property}"]`) as HTMLMetaElement;
+        if (!el) {
+            el = document.createElement('meta');
+            if (!isName) el.setAttribute('property', property);
+            else el.setAttribute('name', property);
+            document.head.appendChild(el);
+        }
+        el.setAttribute('content', content);
+    };
+
+    setMeta('description', description, true);
+    setMeta('keywords', `${novel.title}, read ${novel.title}, ${novel.author || ''}, web novel, light novel, free reading, romance novel, fantasy novel, slflix novel hub`, true);
+    setMeta('og:type', 'book');
+    setMeta('og:title', title);
+    setMeta('og:description', description);
+    setMeta('og:image', image);
+    setMeta('og:url', url);
+    setMeta('og:site_name', 'SL-FLIX Novel Hub');
+    setMeta('twitter:card', 'summary_large_image', true);
+    setMeta('twitter:title', title, true);
+    setMeta('twitter:description', description, true);
+    setMeta('twitter:image', image, true);
+};
+
 export const resetToHomeSEO = () => {
     updateMetaTags(null, true);
 };

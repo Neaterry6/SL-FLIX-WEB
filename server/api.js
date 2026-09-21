@@ -385,7 +385,10 @@ router.get('/subtitle', async (req, res) => {
 
 router.get('/sources/:id', async (req, res) => {
     try {
-        const subjectId = req.params.id;
+        let subjectId = req.params.id || '';
+        if (subjectId === 'undefined' || subjectId === 'null' || subjectId === 'search') {
+            subjectId = '';
+        }
         const season = req.query.season || '0';
         const episode = req.query.episode || '0';
         const detailPath = req.query.path || '';
@@ -401,6 +404,7 @@ router.get('/sources/:id', async (req, res) => {
         }
 
         const getStreamData = async (sid, dpath) => {
+            if (!sid) return null;
             const se = isMovie ? '0' : season;
             const ep = isMovie ? '0' : episode;
             // 1. Primary: MovieBox-pro action=download endpoint (returns fixed multi-language subtitles)
@@ -418,9 +422,9 @@ router.get('/sources/:id', async (req, res) => {
             return resData || fallbackData;
         };
 
-        let data = await getStreamData(subjectId, resolvedPath);
+        let data = subjectId ? await getStreamData(subjectId, resolvedPath) : null;
         if ((!data || (!data.qualities?.length && !data.subtitles?.length)) && title) {
-            console.log(`[API] No sources for subjectId ${subjectId}, trying fallback search for "${title}"`);
+            console.log(`[API] No direct sources for subjectId "${subjectId}", trying search for "${title}"`);
             const omegatechUrl = `https://api.omegatech.app/api/movie/MovieBox-pro?action=search&keyword=${encodeURIComponent(title)}&page=1`;
             const omegatechData = await fetchExternal(omegatechUrl);
             const items = omegatechData?.data?.results || omegatechData?.data?.raw?.items || omegatechData?.data?.items || [];
@@ -1030,6 +1034,261 @@ router.get('/webtoon/read', async (req, res) => {
         res.status(500).json({ error: "Internal server error" });
     }
 });
+
+// Anime (Nimegami) API
+router.get('/anime/home', async (req, res) => {
+    try {
+        const cacheKey = 'anime_home';
+        const cached = cache.get(cacheKey);
+        if (cached) return res.json(cached);
+        const targetUrl = 'https://api.omegatech.app/api/Anime/Nimegami?action=home';
+        try {
+            const directRes = await fetch(targetUrl, { signal: AbortSignal.timeout(6000) });
+            if (directRes.ok) {
+                const directData = await directRes.json();
+                if (directData && directData.data) {
+                    const result = { success: true, data: directData.data };
+                    cache.set(cacheKey, result, 1800);
+                    return res.json(result);
+                }
+            }
+        } catch (e) {}
+        const data = await fetchExternal(targetUrl);
+        if (data.success && data.data) {
+            const result = {
+                success: true,
+                data: Array.isArray(data.data) ? data.data : []
+            };
+            cache.set(cacheKey, result, 1800);
+            return res.json(result);
+        }
+        res.json({ success: false, data: [] });
+    } catch (error) {
+        console.error('[API] Anime home error:', error);
+        res.status(500).json({ success: false, data: [], error: "Internal server error" });
+    }
+});
+
+router.get('/anime/search', async (req, res) => {
+    const { query } = req.query;
+    if (!query) return res.json({ success: true, data: [] });
+    try {
+        const cacheKey = `anime_search_${query.toLowerCase()}`;
+        const cached = cache.get(cacheKey);
+        if (cached) return res.json(cached);
+        const targetUrl = `https://api.omegatech.app/api/Anime/Nimegami?action=search&query=${encodeURIComponent(query)}`;
+        try {
+            const directRes = await fetch(targetUrl, { signal: AbortSignal.timeout(6000) });
+            if (directRes.ok) {
+                const directData = await directRes.json();
+                if (directData && directData.data) {
+                    const result = { success: true, data: directData.data };
+                    cache.set(cacheKey, result, 600);
+                    return res.json(result);
+                }
+            }
+        } catch (e) {}
+        const data = await fetchExternal(targetUrl);
+        if (data.success && data.data) {
+            const result = {
+                success: true,
+                data: Array.isArray(data.data) ? data.data : []
+            };
+            cache.set(cacheKey, result, 600);
+            return res.json(result);
+        }
+        res.json({ success: false, data: [] });
+    } catch (error) {
+        console.error('[API] Anime search error:', error);
+        res.status(500).json({ success: false, data: [], error: "Internal server error" });
+    }
+});
+
+router.get('/anime/detail', async (req, res) => {
+    const { url } = req.query;
+    if (!url) return res.status(400).json({ error: "Missing url parameter" });
+    try {
+        const cacheKey = `anime_detail_${url}`;
+        const cached = cache.get(cacheKey);
+        if (cached) return res.json(cached);
+        const targetUrl = `https://api.omegatech.app/api/Anime/Nimegami?action=detail&url=${encodeURIComponent(url)}`;
+        try {
+            const directRes = await fetch(targetUrl, { signal: AbortSignal.timeout(8000) });
+            if (directRes.ok) {
+                const directData = await directRes.json();
+                if (directData && directData.data) {
+                    cache.set(cacheKey, directData.data, 3600);
+                    return res.json(directData.data);
+                }
+            }
+        } catch (e) {}
+        const data = await fetchExternal(targetUrl);
+        if (data.success && data.data) {
+            cache.set(cacheKey, data.data, 3600);
+            return res.json(data.data);
+        }
+        res.status(404).json({ error: "Not found" });
+    } catch (error) {
+        console.error('[API] Anime detail error:', error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+router.get('/anime/stream-resolve', async (req, res) => {
+    const { url, name = '' } = req.query;
+    if (!url) return res.status(400).json({ success: false, error: "Missing url parameter" });
+
+    try {
+        const decodedUrl = decodeURIComponent(url);
+        
+        // 1. If it's a stordl.halahgan.com or berkasdrive link
+        if (decodedUrl.includes('stordl.halahgan.com') || decodedUrl.includes('halahgan.com')) {
+            try {
+                const parsed = new URL(decodedUrl);
+                const pathParts = parsed.pathname.split('/').filter(Boolean);
+                const fileId = pathParts[0] === 'streaming' ? pathParts[1] : pathParts[0];
+                const fileName = parsed.searchParams.get('name') || name || '';
+
+                if (fileId) {
+                    const apiUrl = `https://stordl.halahgan.com/${fileId}?action=file-url&id=${fileId}&name=${encodeURIComponent(fileName)}`;
+                    const directRes = await fetch(apiUrl, { signal: AbortSignal.timeout(6000) });
+                    if (directRes.ok) {
+                        const directData = await directRes.json();
+                        if (directData && directData.ok && directData.url) {
+                            return res.json({
+                                success: true,
+                                directUrl: directData.url,
+                                streamProxyUrl: `/api/anime/stream-proxy?url=${encodeURIComponent(directData.url)}`,
+                                embedUrl: `https://stordl.halahgan.com/streaming/${fileId}`,
+                                type: 'mp4',
+                                fileId
+                            });
+                        }
+                    }
+                    // Fallback to streaming embed page
+                    return res.json({
+                        success: true,
+                        directUrl: decodedUrl,
+                        embedUrl: `https://stordl.halahgan.com/streaming/${fileId}`,
+                        type: 'embed',
+                        fileId
+                    });
+                }
+            } catch (err) {
+                console.error('[ANIME] Resolve stordl error:', err.message);
+            }
+        }
+
+        // 2. Direct MP4 link
+        if (decodedUrl.toLowerCase().includes('.mp4')) {
+            return res.json({
+                success: true,
+                directUrl: decodedUrl,
+                streamProxyUrl: `/api/anime/stream-proxy?url=${encodeURIComponent(decodedUrl)}`,
+                type: 'mp4'
+            });
+        }
+
+        // 3. Fallback
+        return res.json({
+            success: true,
+            directUrl: decodedUrl,
+            streamProxyUrl: decodedUrl,
+            embedUrl: decodedUrl,
+            type: 'embed'
+        });
+    } catch (err) {
+        console.error('[ANIME] stream-resolve error:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+router.get('/anime/stream-proxy', async (req, res) => {
+    try {
+        const { url } = req.query;
+        if (!url) return res.status(400).end();
+
+        const decodedUrl = decodeURIComponent(url);
+        const parsedUrl = new URL(decodedUrl);
+
+        const options = {
+            hostname: parsedUrl.hostname,
+            path: parsedUrl.pathname + parsedUrl.search,
+            method: 'GET',
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                'Referer': parsedUrl.origin + '/',
+                'Origin': parsedUrl.origin
+            }
+        };
+
+        if (req.headers.range) {
+            options.headers['Range'] = req.headers.range;
+        }
+
+        const protocol = parsedUrl.protocol === 'https:' ? https : http;
+        const proxyReq = protocol.request(options, (proxyRes) => {
+            // Handle redirects
+            if (proxyRes.statusCode >= 300 && proxyRes.statusCode < 400 && proxyRes.headers.location) {
+                let redirectUrl = proxyRes.headers.location;
+                if (redirectUrl.startsWith('/')) {
+                    redirectUrl = parsedUrl.origin + redirectUrl;
+                }
+                res.redirect(`/api/anime/stream-proxy?url=${encodeURIComponent(redirectUrl)}`);
+                return;
+            }
+
+            res.status(proxyRes.statusCode);
+
+            Object.keys(proxyRes.headers).forEach(key => {
+                const lowerKey = key.toLowerCase();
+                if (lowerKey === 'content-disposition') {
+                    res.setHeader('Content-Disposition', 'inline');
+                } else if (lowerKey !== 'access-control-allow-origin' && lowerKey !== 'content-security-policy') {
+                    res.setHeader(key, proxyRes.headers[key]);
+                }
+            });
+
+            res.setHeader('Content-Disposition', 'inline');
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+            res.setHeader('Access-Control-Allow-Headers', 'Range, Content-Type, Accept');
+            res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Content-Length, Accept-Ranges');
+
+            proxyRes.pipe(res);
+        });
+
+        proxyReq.on('error', (err) => {
+            console.error('[ANIME PROXY] Stream error:', err.message);
+            if (!res.headersSent) res.status(502).end();
+        });
+
+        proxyReq.end();
+    } catch (err) {
+        console.error('[ANIME PROXY] Catch Error:', err.message);
+        if (!res.headersSent) res.status(500).end();
+    }
+});
+
+router.get('/novel', async (req, res) => {
+    try {
+        const { action = 'search', query, novelId, chapterId, opConfId, page = 1, perPage = 10 } = req.query;
+        let targetUrl = `https://api.omegatech.app/api/Novel/novel?action=${encodeURIComponent(action)}`;
+        if (query) targetUrl += `&query=${encodeURIComponent(query)}`;
+        if (novelId) targetUrl += `&novelId=${encodeURIComponent(novelId)}`;
+        if (chapterId) targetUrl += `&chapterId=${encodeURIComponent(chapterId)}`;
+        if (opConfId) targetUrl += `&opConfId=${encodeURIComponent(opConfId)}`;
+        if (page) targetUrl += `&page=${encodeURIComponent(page)}`;
+        if (perPage) targetUrl += `&perPage=${encodeURIComponent(perPage)}`;
+
+        const data = await fetchExternal(targetUrl);
+        res.json(data);
+    } catch (err) {
+        console.error('[NOVEL API] Error:', err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 router.get('/adult/xnxx', async (req, res) => {
     try {
         const { action = 'search', query = 'Trending', url, page = 1 } = req.query;

@@ -14,15 +14,19 @@ import NetworkStatusNotifier from './components/NetworkStatusNotifier';
 import PWAInstallButton from './components/PWAInstallButton';
 import { Dock, DockIcon, DockItem, DockLabel } from "./components/Dock";
 import NewsView from './components/NewsView';
-import WebtoonView from './components/WebtoonView';
-import WebtoonReader from './components/WebtoonReader';
+import AnimeView from './components/AnimeView';
+import SearchView from './components/SearchView';
 import AdultView from './components/AdultView';
 import ApiDocsView from './components/ApiDocsView';
 import StaffView from './components/StaffView';
+import { NovelHubView } from './components/NovelHubView';
+import { WatchPartyView } from './components/WatchPartyView';
 import { useHomeData } from './hooks/useHomeData';
 import { useMovieDetails } from './hooks/useMovieDetails';
 import { getOptimizedImageUrl, DEFAULT_FAVICON_FALLBACK } from './utils/image';
 import BulkDownloadModal from './components/BulkDownloadModal';
+
+declare const io: any;
 import { 
   StarIcon, PlayIcon, PlusIcon, ShareIcon, BackIcon,
   ChevronRightIcon, CalendarIcon, TagIcon, HeartIcon, FilmIcon, TvIcon, 
@@ -319,7 +323,39 @@ const ToplistView: React.FC<{ initialCategory?: string; onMovieClick: (m: MovieR
         </div>
     );
 };
-const Navbar: React.FC<{ onSearch: (q: string) => void, onHome: () => void, onToplist: () => void, onLiveTv: () => void, onNews: () => void, onWebtoon: () => void, onAdult?: () => void, isSearchOpen: boolean, setIsSearchOpen: (v: boolean) => void, trendingKeywords: string[], currentView: string }> = ({ onSearch, onHome, onToplist, onLiveTv, onNews, onWebtoon, onAdult, isSearchOpen, setIsSearchOpen, trendingKeywords, currentView }) => {
+const Navbar: React.FC<{ 
+    onSearch: (q: string) => void, 
+    onHome: () => void, 
+    onToplist: () => void, 
+    onLiveTv: () => void, 
+    onNews: () => void, 
+    onAnime: () => void, 
+    onNovels: () => void,
+    onWatchParty: () => void,
+    onAdult?: () => void, 
+    isSearchOpen: boolean, 
+    setIsSearchOpen: (v: boolean) => void, 
+    trendingKeywords: string[], 
+    recentSearches: string[],
+    onClearRecentSearches: () => void,
+    currentView: string 
+}> = ({ 
+    onSearch, 
+    onHome, 
+    onToplist, 
+    onLiveTv, 
+    onNews, 
+    onAnime, 
+    onNovels,
+    onWatchParty,
+    onAdult, 
+    isSearchOpen, 
+    setIsSearchOpen, 
+    trendingKeywords, 
+    recentSearches,
+    onClearRecentSearches,
+    currentView 
+}) => {
     const [val, setVal] = useState('');
     const [suggestions, setSuggestions] = useState<ImdbSuggestion[]>([]);
     useEffect(() => {
@@ -347,7 +383,9 @@ const Navbar: React.FC<{ onSearch: (q: string) => void, onHome: () => void, onTo
                     <button onClick={onToplist} className={`hidden md:flex text-sm font-medium ${currentView === 'toplist' ? 'text-primary' : 'text-gray-300 hover:text-primary'}`}><i className="fa-solid fa-chart-line"></i><span>Top List</span></button>
                     <button onClick={onLiveTv} className={`hidden md:flex text-sm font-medium ${currentView === 'live-tv' ? 'text-primary' : 'text-gray-300 hover:text-primary'}`}><i className="fa-solid fa-satellite-dish"></i><span>Live TV</span></button>
                     <button onClick={onNews} className={`hidden md:flex text-sm font-medium ${currentView === 'news' ? 'text-primary' : 'text-gray-300 hover:text-primary'}`}><i className="fa-solid fa-newspaper"></i><span>News</span></button>
-                    <button onClick={onWebtoon} className={`hidden md:flex text-sm font-medium ${currentView === 'webtoon' ? 'text-primary' : 'text-gray-300 hover:text-primary'}`}><i className="fa-solid fa-book-open text-primary"></i><span>Toon</span></button>
+                    <button onClick={onAnime} className={`hidden md:flex text-sm font-medium ${currentView === 'anime' ? 'text-primary' : 'text-gray-300 hover:text-primary'}`}><i className="fa-solid fa-tv text-primary"></i><span>Anime</span></button>
+                    <button onClick={onNovels} className={`hidden md:flex text-sm font-medium items-center gap-1.5 ${currentView === 'novels' ? 'text-cyan-400' : 'text-gray-300 hover:text-cyan-400'}`}><i className="fa-solid fa-book-open text-cyan-400"></i><span>Novels</span></button>
+                    <button onClick={onWatchParty} className={`hidden md:flex text-sm font-medium items-center gap-1.5 ${currentView === 'watch-party' ? 'text-purple-400' : 'text-gray-300 hover:text-purple-400'}`}><i className="fa-solid fa-users-viewfinder text-purple-400"></i><span>Watch Party</span></button>
                     {onAdult && (
                         <button onClick={onAdult} className={`px-2.5 py-1 rounded-full text-xs font-black uppercase tracking-wider flex items-center gap-1 transition-all ${currentView === 'adult' ? 'bg-gradient-to-r from-fuchsia-600 to-pink-600 text-white shadow-lg shadow-fuchsia-600/40' : 'bg-fuchsia-500/10 text-fuchsia-400 hover:bg-fuchsia-500/20 border border-fuchsia-500/30'}`}>
                             <i className="fa-solid fa-[#18]"></i>
@@ -363,15 +401,47 @@ const Navbar: React.FC<{ onSearch: (q: string) => void, onHome: () => void, onTo
             {isSearchOpen && (
                 <div className="fixed inset-0 z-[110] bg-[#0a0a15]/98 backdrop-blur-xl p-4 pt-safe animate-fade-in flex flex-col">
                     <div className="flex gap-4 mb-4">
-                        <input autoFocus type="text" className="flex-1 bg-white/10 border-none rounded-full py-3 px-6 text-white outline-none focus:ring-2 focus:ring-primary" placeholder="Search movies, series..." value={val} onChange={(e) => setVal(e.target.value)} onKeyDown={(e) => { if(e.key === 'Enter') submit(val); if(e.key === 'Escape') setIsSearchOpen(false); }} />
+                        <input autoFocus type="text" className="flex-1 bg-white/10 border-none rounded-full py-3 px-6 text-white outline-none focus:ring-2 focus:ring-primary" placeholder="Search movies, series, anime..." value={val} onChange={(e) => setVal(e.target.value)} onKeyDown={(e) => { if(e.key === 'Enter') submit(val); if(e.key === 'Escape') setIsSearchOpen(false); }} />
                         <button onClick={() => setIsSearchOpen(false)} className="text-white font-bold">Cancel</button>
                     </div>
                     <div className="flex-1 overflow-y-auto pb-10">
-                        {val.trim().length === 0 && trendingKeywords.length > 0 && (
-                            <div className="mb-8">
-                                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4 flex items-center gap-2"><i className="fa-solid fa-fire text-orange-500"></i> Trending Searches</h3>
-                                <div className="flex flex-wrap gap-2">{trendingKeywords.map((k, i) => (<button key={i} onClick={() => submit(k)} className="bg-white/5 hover:bg-white/10 border border-white/10 px-4 py-2 rounded-full text-sm text-gray-300 transition-colors">{k}</button>))}</div>
-                            </div>
+                        {val.trim().length === 0 && (
+                            <>
+                                {recentSearches && recentSearches.length > 0 && (
+                                    <div className="mb-6 bg-white/[0.03] border border-white/10 rounded-2xl p-4">
+                                        <div className="flex items-center justify-between mb-3">
+                                            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                                                <i className="fa-solid fa-clock-rotate-left text-primary"></i> Recent Searches
+                                            </h3>
+                                            <button 
+                                                type="button" 
+                                                onClick={onClearRecentSearches} 
+                                                className="text-[11px] font-bold text-gray-400 hover:text-red-400 transition-colors"
+                                            >
+                                                Clear
+                                            </button>
+                                        </div>
+                                        <div className="flex flex-wrap gap-2">
+                                            {recentSearches.map((term, i) => (
+                                                <button 
+                                                    key={i} 
+                                                    onClick={() => submit(term)} 
+                                                    className="bg-white/5 hover:bg-primary/20 border border-white/10 hover:border-primary/40 px-3.5 py-1.5 rounded-full text-xs font-semibold text-gray-200 hover:text-primary transition-all flex items-center gap-1.5"
+                                                >
+                                                    <i className="fa-solid fa-magnifying-glass text-[10px] opacity-60"></i>
+                                                    <span>{term}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                                {trendingKeywords.length > 0 && (
+                                    <div className="mb-8">
+                                        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-4 flex items-center gap-2"><i className="fa-solid fa-fire text-orange-500"></i> Trending Searches</h3>
+                                        <div className="flex flex-wrap gap-2">{trendingKeywords.map((k, i) => (<button key={i} onClick={() => submit(k)} className="bg-white/5 hover:bg-white/10 border border-white/10 px-4 py-2 rounded-full text-sm text-gray-300 transition-colors">{k}</button>))}</div>
+                                    </div>
+                                )}
+                            </>
                         )}
                         {suggestions.length > 0 && (
                             <div className="space-y-1">
@@ -486,7 +556,7 @@ const DetailsView: React.FC<{ movie: MovieResult, onBack: () => void,
             )}
             <div className="relative h-[40vh] md:h-[60vh]">
                 <div className="absolute top-4 left-4 z-20"><button onClick={onBack} className="bg-black/40 backdrop-blur-md border border-white/10 w-10 h-10 rounded-full text-white flex items-center justify-center hover:bg-white/20 transition-colors"><BackIcon className="w-5 h-5" /></button></div>
-                <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${getOptimizedImageUrl(movie.cover, 1280)})` }}></div>
+                <div className="absolute inset-0 bg-cover bg-center transition-all duration-700" style={{ backgroundImage: `url(${getOptimizedImageUrl(movie.cover || movie.thumbnail, 1280)})` }}></div>
                 <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a15] via-[#0a0a15]/40 to-transparent"></div>
                 <div className="absolute bottom-0 left-0 w-full p-[4%] flex flex-col md:flex-row items-end gap-6">
                     <div className="hidden md:block w-[200px] rounded-xl overflow-hidden shadow-2xl border border-white/10"><LazyLoadImage src={getOptimizedImageUrl(movie.thumbnail || movie.cover, 400)} effect="blur" className="w-full h-full object-cover" wrapperClassName="w-full h-full" onError={(e) => { (e.target as HTMLImageElement).src = DEFAULT_FAVICON_FALLBACK; }} /></div>
@@ -660,14 +730,260 @@ const normalizeTrendingItem = (item: any): MovieResult => {
     else if (item.cover?.url) cover = item.cover.url;
     return { title: item.title || "Unknown", cover, thumbnail: cover, type: item.subjectType === 1 ? 'Movie' : item.subjectType === 2 ? 'TV Series' : 'Movie', subjectId: String(item.subjectId || ''), imdbRating: String(item.imdbRatingValue || '0'), releaseDate: String(item.releaseDate || ''), genre: item.genre || '', description: item.description || item.postTitle || '', countryName: item.countryName || '', detailPath: item.detailPath || '', hasResource: item.hasResource !== undefined ? item.hasResource : true };
 };
+const TelegramModal: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpen, onClose }) => {
+    if (!isOpen) return null;
+    return (
+        <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-xl flex items-center justify-center p-4 animate-fade-in">
+            <div className="relative bg-[#12121a]/90 border border-white/10 rounded-[2.5rem] w-full max-w-md p-8 shadow-[0_32px_64px_-12px_rgba(0,0,0,0.9)] text-center overflow-hidden">
+                <div className="absolute -top-24 -right-24 w-48 h-48 bg-primary/20 rounded-full blur-3xl pointer-events-none"></div>
+                <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-blue-500/20 rounded-full blur-3xl pointer-events-none"></div>
+                
+                <button onClick={onClose} className="absolute top-5 right-5 w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white flex items-center justify-center transition-all border border-white/5 cursor-pointer">
+                    <i className="fa-solid fa-times text-lg"></i>
+                </button>
+
+                <div className="w-20 h-20 bg-gradient-to-br from-cyan-400 to-blue-600 rounded-3xl mx-auto flex items-center justify-center shadow-lg shadow-cyan-500/30 mb-6 text-white text-3xl">
+                    <i className="fa-brands fa-telegram"></i>
+                </div>
+
+                <h3 className="text-2xl font-black text-white tracking-tight mb-2">Join Official SLFLIX</h3>
+                <p className="text-gray-300 text-sm mb-6 leading-relaxed">
+                    Stay updated with the latest releases, HD movie drops, fast anime mirrors, and exclusive requests on our official Telegram channel!
+                </p>
+
+                <a 
+                    href="https://t.me/Sl_flix_ofiicial" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    onClick={onClose}
+                    className="w-full py-4 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-black font-extrabold rounded-2xl shadow-lg shadow-cyan-500/25 flex items-center justify-center gap-3 transition-all transform active:scale-95 text-base"
+                >
+                    <i className="fa-brands fa-telegram text-xl"></i>
+                    <span>Join @Sl_flix_ofiicial</span>
+                </a>
+                
+                <div className="mt-4">
+                    <button onClick={onClose} className="text-xs font-bold text-gray-400 hover:text-white transition-colors tracking-wide uppercase">
+                        Continue to SLFLIX
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const WatchPartyAnnouncementBanner: React.FC<{
+    rooms: any[];
+    onJoinRoom: (roomId: string) => void;
+    currentView: string;
+    isSearchOpen: boolean;
+}> = ({ rooms, onJoinRoom, currentView, isSearchOpen }) => {
+    const [currentIndex, setCurrentIndex] = useState(0);
+    const [dismissed, setDismissed] = useState(false);
+
+    useEffect(() => {
+        if (rooms.length <= 1) {
+            setCurrentIndex(0);
+            return;
+        }
+        const interval = setInterval(() => {
+            setCurrentIndex((prev) => (prev + 1) % rooms.length);
+        }, 4500);
+        return () => clearInterval(interval);
+    }, [rooms.length]);
+
+    if (dismissed || rooms.length === 0 || currentView === 'watch-party' || isSearchOpen) {
+        return null;
+    }
+
+    const activeRoom = rooms[currentIndex] || rooms[0];
+    if (!activeRoom) return null;
+
+    const movieTitle = activeRoom.movie?.title || 'a movie';
+    const viewersCount = activeRoom.users?.length || 1;
+
+    return (
+        <div className="relative z-30 bg-[#0c0e17]/95 border-b border-cyan-500/20 backdrop-blur-md px-4 py-2 text-white shadow-lg overflow-hidden transition-all duration-300">
+            <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2.5 flex-1 min-w-0 overflow-hidden">
+                    <span className="flex-shrink-0 flex items-center gap-1.5 bg-rose-500/20 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider animate-pulse">
+                        <span className="w-1.5 h-1.5 bg-rose-500 rounded-full"></span>
+                        LIVE
+                    </span>
+
+                    <div className="flex items-center gap-2 min-w-0 flex-1 truncate transition-all duration-500">
+                        <span className="text-cyan-300 font-extrabold truncate">
+                            {activeRoom.roomName}
+                        </span>
+                        <span className="text-gray-500 hidden sm:inline">•</span>
+                        <span className="text-gray-200 truncate hidden xs:inline">
+                            Watching <strong className="text-white font-bold">{movieTitle}</strong>
+                        </span>
+                        {rooms.length > 1 && (
+                            <span className="text-[10px] text-cyan-400/80 bg-cyan-950/60 border border-cyan-500/30 px-1.5 py-0.2 rounded font-mono hidden md:inline">
+                                {currentIndex + 1}/{rooms.length}
+                            </span>
+                        )}
+                        <span className="text-gray-400 text-[11px] hidden lg:inline">
+                            ({viewersCount} watching)
+                        </span>
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-2 flex-shrink-0">
+                    {rooms.length > 1 && (
+                        <div className="flex items-center gap-1 mr-1 hidden sm:flex">
+                            <button
+                                onClick={() => setCurrentIndex((prev) => (prev - 1 + rooms.length) % rooms.length)}
+                                className="w-5 h-5 rounded-full bg-white/5 hover:bg-white/20 text-gray-300 flex items-center justify-center text-[9px] transition-colors cursor-pointer"
+                                title="Previous Room"
+                            >
+                                <i className="fa-solid fa-chevron-left"></i>
+                            </button>
+                            <button
+                                onClick={() => setCurrentIndex((prev) => (prev + 1) % rooms.length)}
+                                className="w-5 h-5 rounded-full bg-white/5 hover:bg-white/20 text-gray-300 flex items-center justify-center text-[9px] transition-colors cursor-pointer"
+                                title="Next Room"
+                            >
+                                <i className="fa-solid fa-chevron-right"></i>
+                            </button>
+                        </div>
+                    )}
+
+                    <button
+                        onClick={() => onJoinRoom(activeRoom.roomId)}
+                        className="px-3 py-1 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-black font-black text-xs rounded-full shadow-md shadow-cyan-500/20 hover:scale-105 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
+                    >
+                        <span>Join</span>
+                        <i className="fa-solid fa-arrow-right text-[10px]"></i>
+                    </button>
+
+                    <button
+                        onClick={() => setDismissed(true)}
+                        className="w-6 h-6 rounded-full hover:bg-white/10 text-gray-400 hover:text-white flex items-center justify-center text-xs transition-colors ml-1 cursor-pointer"
+                        title="Dismiss announcement"
+                    >
+                        <i className="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const App: React.FC = () => {
-    const [currentView, setCurrentView] = useState<'home' | 'search' | 'details' | 'trending' | 'toplist' | 'api-docs' | 'live-tv' | 'webtoon' | 'webtoon-reader' | 'sports' | 'news' | 'staff' | 'adult'>('home');
+    const [currentView, setCurrentView] = useState<'home' | 'search' | 'details' | 'trending' | 'toplist' | 'api-docs' | 'live-tv' | 'anime' | 'sports' | 'news' | 'staff' | 'adult' | 'novels' | 'watch-party'>('home');
     const [selectedStaff, setSelectedStaff] = useState<{ id: string, name: string, avatar?: string } | null>(null);
-    const [readerState, setReaderState] = useState<{ isOpen: boolean; url: string; title: string }>({ isOpen: false, url: '', title: '' });
-    const [webtoonUrl, setWebtoonUrl] = useState<string | null>(null);
+    const [activeRooms, setActiveRooms] = useState<any[]>([]);
+
+    useEffect(() => {
+        const s = typeof io !== 'undefined' ? io() : null;
+        if (!s) return;
+        s.emit('get_active_rooms');
+        s.on('active_rooms_list', (rooms: any[]) => setActiveRooms(rooms || []));
+        return () => { s.disconnect(); };
+    }, []);
+
+    const handleNovelsClick = () => {
+        hasNavigatedRef.current = true;
+        setCurrentView('novels');
+        window.history.pushState({}, '', '/novels');
+        resetToHomeSEO();
+    };
+
+    const handleWatchPartyClick = (roomId?: string) => {
+        hasNavigatedRef.current = true;
+        setCurrentView('watch-party');
+        if (roomId) {
+            window.history.pushState({}, '', `/watch-party?room=${roomId}`);
+        } else {
+            window.history.pushState({}, '', '/watch-party');
+        }
+        resetToHomeSEO();
+    };
+    const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
+    const [recentlyViewed, setRecentlyViewed] = useState<MovieResult[]>(() => {
+        try {
+            const stored = localStorage.getItem('slflix_recently_viewed');
+            return stored ? JSON.parse(stored) : [];
+        } catch { return []; }
+    });
+
+    useEffect(() => {
+        const handleOnline = () => setIsOnline(true);
+        const handleOffline = () => setIsOnline(false);
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
+        return () => {
+            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('offline', handleOffline);
+        };
+    }, []);
+
+    const cacheRecentlyViewed = (movie: MovieResult) => {
+        try {
+            const stored = localStorage.getItem('slflix_recently_viewed');
+            let list: MovieResult[] = stored ? JSON.parse(stored) : [];
+            list = [movie, ...list.filter(m => (m.subjectId && m.subjectId !== movie.subjectId) || (m.title !== movie.title))].slice(0, 15);
+            localStorage.setItem('slflix_recently_viewed', JSON.stringify(list));
+            setRecentlyViewed(list);
+        } catch {}
+    };
+
+    const [showTelegramModal, setShowTelegramModal] = useState(false);
+    useEffect(() => {
+        const dismissed = localStorage.getItem('slflix_telegram_modal_dismissed');
+        if (!dismissed) {
+            const timer = setTimeout(() => setShowTelegramModal(true), 1500);
+            return () => clearTimeout(timer);
+        }
+    }, []);
+    const handleCloseTelegramModal = () => {
+        setShowTelegramModal(false);
+        localStorage.setItem('slflix_telegram_modal_dismissed', 'true');
+    };
+    const [recentSearches, setRecentSearches] = useState<string[]>(() => {
+        try {
+            const stored = localStorage.getItem('slflix_recent_searches');
+            return stored ? JSON.parse(stored) : [];
+        } catch (e) {
+            return [];
+        }
+    });
+
+    const saveRecentSearch = (query: string) => {
+        const q = query.trim();
+        if (!q) return;
+        try {
+            const stored = localStorage.getItem('slflix_recent_searches');
+            let list: string[] = stored ? JSON.parse(stored) : [];
+            list = [q, ...list.filter(item => item.toLowerCase() !== q.toLowerCase())].slice(0, 5);
+            localStorage.setItem('slflix_recent_searches', JSON.stringify(list));
+            setRecentSearches(list);
+        } catch (e) {}
+    };
+
+    const clearRecentSearches = () => {
+        try {
+            localStorage.removeItem('slflix_recent_searches');
+            setRecentSearches([]);
+        } catch (e) {}
+    };
+
+    const removeRecentSearch = (term: string) => {
+        try {
+            const stored = localStorage.getItem('slflix_recent_searches');
+            let list: string[] = stored ? JSON.parse(stored) : [];
+            list = list.filter(item => item.toLowerCase() !== term.toLowerCase());
+            localStorage.setItem('slflix_recent_searches', JSON.stringify(list));
+            setRecentSearches(list);
+        } catch (e) {}
+    };
+
     const { data: homeData, loading: homeLoading, error: homeError } = useHomeData();
     const heroMovies = homeData?.hero || [];
     const categoriesData = homeData?.categories || [];
+    const [selectedNovelId, setSelectedNovelId] = useState<string | null>(null);
     const [selectedMovie, setSelectedMovie] = useState<MovieResult | null>(null);
     const [isSearchOpen, setIsSearchOpen] = useState(false);
     const [trendingKeywords, setTrendingKeywords] = useState<string[]>([]);
@@ -722,13 +1038,18 @@ const App: React.FC = () => {
     };
     const handleSearch = useCallback(async (q: string, page: number = 1) => {
         hasNavigatedRef.current = true;
-        if (!q.trim()) return;
-        if (page === 1) setSearchState(prev => ({ ...prev, loading: true, query: q }));
-        else setSearchState(prev => ({ ...prev, loadingMore: true }));
+        const trimmed = q.trim();
+        if (!trimmed) return;
+        if (page === 1) {
+            saveRecentSearch(trimmed);
+            setSearchState(prev => ({ ...prev, loading: true, query: trimmed }));
+        } else {
+            setSearchState(prev => ({ ...prev, loadingMore: true }));
+        }
         setCurrentView('search');
-        if (page === 1) window.history.pushState({}, '', `/search?q=${encodeURIComponent(q)}`);
-        const res = await ApiService.search(q, page);
-        if (page === 1) setSearchState({ query: q, results: res.results, loading: false, hasMore: res.hasMore, nextPage: res.nextPage, loadingMore: false });
+        if (page === 1) window.history.pushState({}, '', `/search?q=${encodeURIComponent(trimmed)}`);
+        const res = await ApiService.search(trimmed, page);
+        if (page === 1) setSearchState({ query: trimmed, results: res.results, loading: false, hasMore: res.hasMore, nextPage: res.nextPage, loadingMore: false });
         else setSearchState(prev => ({ ...prev, results: [...prev.results, ...res.results], loadingMore: false, hasMore: res.hasMore, nextPage: res.nextPage }));
     }, []);
     useEffect(() => {
@@ -744,6 +1065,7 @@ const App: React.FC = () => {
     const handleMovieClick = async (m: MovieResult) => {
         setLoadingDetails(true);
         hasNavigatedRef.current = true;
+        cacheRecentlyViewed(m);
         const prefix = m.type.includes('Series') ? '/tv/' : '/movie/';
         window.history.pushState({}, '', `${prefix}${m.subjectId || m.detailPath}`);
         setCurrentView('details');
@@ -753,8 +1075,12 @@ const App: React.FC = () => {
         try {
             const fullDetails = await ApiService.getDetails(m);
             setSelectedMovie(fullDetails);
+            cacheRecentlyViewed(fullDetails);
             updateMetaTags(fullDetails, false);
-        } catch { setToast({ show: true, message: "Error loading details", type: "error" }); }
+        } catch { 
+            // Fallback to recently viewed if offline
+            setToast({ show: true, message: isOnline ? "Error loading details" : "Offline mode: loaded from cache", type: isOnline ? "error" : "info" });
+        }
         finally { setLoadingDetails(false); }
     };
     const handleStaffClick = (id: string, name: string, avatar?: string) => {
@@ -781,6 +1107,8 @@ const App: React.FC = () => {
             else if (path === '/toplist') setCurrentView('toplist');
             else if (path === '/trending') setCurrentView('trending');
             else if (path === '/api-docs') setCurrentView('api-docs');
+            else if (path === '/anime' || path.startsWith('/anime')) setCurrentView('anime');
+            else if (path === '/novels' || path.startsWith('/novels')) setCurrentView('novels');
             else if (path.startsWith('/search') && q) {
                 setSearchState(prev => ({ ...prev, query: q, loading: true }));
                 setCurrentView('search');
@@ -839,9 +1167,19 @@ const App: React.FC = () => {
         const initCheck = async () => {
             const path = window.location.pathname;
             const q = new URLSearchParams(window.location.search).get('q');
-            if (path === '/toplist') handleToplistClick();
+            const novelId = new URLSearchParams(window.location.search).get('novel');
+            const roomParam = new URLSearchParams(window.location.search).get('room');
+            if (novelId) {
+                setSelectedNovelId(novelId);
+                setCurrentView('novels');
+            } else if (roomParam || path === '/watch-party') {
+                setCurrentView('watch-party');
+            } else if (path === '/novels' || path.startsWith('/novels')) {
+                setCurrentView('novels');
+            } else if (path === '/toplist') handleToplistClick();
             else if (path === '/trending') handleTrendingClick();
             else if (path === '/api-docs') setCurrentView('api-docs');
+            else if (path === '/anime' || path.startsWith('/anime')) handleAnimeClick();
             else if (path.startsWith('/search') && q) handleSearch(q);
             else if (path.startsWith('/staff/')) { const id = path.split('/').pop(); if (id) { setSelectedStaff({ id, name: "Staff Member" }); setCurrentView('staff'); } }
             else if (path.startsWith('/movie/') || path.startsWith('/tv/')) { 
@@ -867,6 +1205,10 @@ const App: React.FC = () => {
             try {
                 const trending = await ApiService.getTrendingSearches(); 
                 setTrendingKeywords(trending); 
+                // Auto run / prefetch main feeds in background so tabs are instantly ready and updating
+                ApiService.getTrending?.(1).catch(() => {});
+                ApiService.getTvChannels?.({ limit: 500 }).catch(() => {});
+                ApiService.getAnimeHome?.().catch(() => {});
             } catch (e) {
                 console.error('Error loading trending searches:', e);
             }
@@ -905,7 +1247,7 @@ const App: React.FC = () => {
     };
     const handleTrendingClick = () => { hasNavigatedRef.current = true; setCurrentView('trending'); window.history.pushState({}, '', '/trending'); resetToHomeSEO(); if (trendingMovies.length === 0) loadTrending(0); };
     const handleLiveTvClick = () => { hasNavigatedRef.current = true; setCurrentView('live-tv'); window.history.pushState({}, '', '/live-tv'); resetToHomeSEO(); };
-    const handleWebtoonClick = () => { hasNavigatedRef.current = true; setCurrentView('webtoon'); window.history.pushState({}, '', '/webtoon'); resetToHomeSEO(); };
+    const handleAnimeClick = () => { hasNavigatedRef.current = true; setCurrentView('anime'); window.history.pushState({}, '', '/anime'); resetToHomeSEO(); };
     const handlePlayLiveChannel = (channel: any, channelList?: any[]) => {
         if (!channel) return;
         const rawUrl = channel.stream_url || channel.url || channel.streamUrl;
@@ -943,11 +1285,6 @@ const App: React.FC = () => {
             url: match.playPath,
             title: match.team1.name + ' vs ' + match.team2.name
         });
-    };
-    const handleReadWebtoon = (url: string, title: string) => {
-        setReaderState({ isOpen: true, url, title });
-        setCurrentView('webtoon-reader');
-        window.history.pushState({}, '', '/webtoon/read');
     };
     const handleProgressUpdate = (time: number, duration: number) => {
         const { subjectId, season, episode, title } = playerStateRef.current;
@@ -1045,21 +1382,37 @@ const App: React.FC = () => {
                 )
             )}
             <div className={playerState.isOpen ? 'hidden' : 'block'}>
-                {currentView !== 'live-tv' && currentView !== 'webtoon-reader' && (
+                {!isOnline && (
+                    <div className="bg-amber-500 text-black font-extrabold text-xs py-2 px-4 text-center flex items-center justify-center gap-2 sticky top-0 z-[120] shadow-lg">
+                        <i className="fa-solid fa-wifi-slash text-base"></i>
+                        <span>Offline Mode Active — Viewing recently accessed movie pages & cached data</span>
+                    </div>
+                )}
+                {currentView !== 'live-tv' && (
                     <Navbar 
                         onSearch={handleSearch} 
                         onHome={() => { setCurrentView('home'); window.history.pushState({}, '', '/'); resetToHomeSEO(); }} 
                         onToplist={() => handleToplistClick()} 
                         onLiveTv={handleLiveTvClick}
                         onNews={() => { hasNavigatedRef.current = true; setCurrentView('news'); window.history.pushState({}, '', '/news'); resetToHomeSEO(); }}
-                        onWebtoon={handleWebtoonClick}
+                        onAnime={handleAnimeClick}
+                        onNovels={handleNovelsClick}
+                        onWatchParty={() => handleWatchPartyClick()}
                         onAdult={() => { hasNavigatedRef.current = true; setCurrentView('adult'); window.history.pushState({}, '', '/adult'); resetToHomeSEO(); }}
                         isSearchOpen={isSearchOpen} 
                         setIsSearchOpen={setIsSearchOpen} 
                         trendingKeywords={trendingKeywords} 
+                        recentSearches={recentSearches}
+                        onClearRecentSearches={clearRecentSearches}
                         currentView={currentView}
                     />
                 )}
+                <WatchPartyAnnouncementBanner 
+                    rooms={activeRooms} 
+                    onJoinRoom={(roomId) => handleWatchPartyClick(roomId)} 
+                    currentView={currentView} 
+                    isSearchOpen={isSearchOpen} 
+                />
                 <main className="flex-1">
                     {currentView === 'home' && (
                         <div className="pb-24">
@@ -1067,39 +1420,48 @@ const App: React.FC = () => {
                         </div>
                     )}
                     {currentView === 'search' && (
-                        <div className="pt-8 px-[4%] pb-24">
-                            <div className="mb-6"><h2 className="text-2xl font-bold text-white">Search Results</h2><p className="text-gray-400 text-sm mt-1">Found {searchState.results.length} results for "{searchState.query}"</p></div>
-                            {searchState.loading ? <Loader /> : (
-                                <>
-                                    {searchState.results.length > 0 ? (
-                                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                                            {searchState.results.map((m, i) => (
-                                                <div key={i} className="transform transition-all duration-300 hover:scale-105 hover:z-10">
-                                                    <MovieCard movie={m} onClick={handleMovieClick} />
-                                                </div>
-                                            ))}
-                                        </div>
-                                    ) : (
-                                        <div className="col-span-full text-center py-20">
-                                            <div className="text-6xl mb-4 text-gray-600"><i className="fa-solid fa-film"></i></div>
-                                            <p className="text-gray-400 text-lg">No results found</p>
-                                        </div>
-                                    )}
-                                    <div ref={searchLoadMoreRef} className="flex justify-center py-8">
-                                        {searchState.loadingMore && <Loader type="circle" inline />}
-                                        {!searchState.hasMore && searchState.results.length > 0 && (
-                                            <p className="text-gray-500 text-xs uppercase tracking-wider font-bold">No more results</p>
-                                        )}
-                                    </div>
-                                </>
-                            )}
-                        </div>
+                        <SearchView 
+                            query={searchState.query}
+                            results={searchState.results}
+                            loading={searchState.loading}
+                            loadingMore={searchState.loadingMore}
+                            hasMore={searchState.hasMore}
+                            recentSearches={recentSearches}
+                            onSearch={(q) => handleSearch(q, 1)}
+                            onClearRecentSearches={clearRecentSearches}
+                            onRemoveRecentSearch={removeRecentSearch}
+                            onMovieClick={handleMovieClick}
+                            onNovelClick={(novelId) => {
+                                setSelectedNovelId(novelId);
+                                setCurrentView('novels');
+                                window.history.pushState({}, '', `/?novel=${novelId}`);
+                            }}
+                            loadMoreRef={searchLoadMoreRef}
+                        />
                     )}
                     {currentView === 'trending' && <TrendingView movies={trendingMovies} loading={trendingLoading} hasMore={trendingHasMore} onLoadMore={() => loadTrending(trendingPage + 1)} onMovieClick={handleMovieClick} />}
                     {currentView === 'toplist' && <ToplistView initialCategory={toplistCategory} onMovieClick={handleMovieClick} onBack={() => { setCurrentView('home'); window.history.pushState({}, '', '/'); }} />}
                     {currentView === 'live-tv' && <LiveTv onBack={() => { setCurrentView('home'); window.history.pushState({}, '', '/'); }} onPlay={handlePlayLiveChannel} />}
                     {currentView === 'news' && <NewsView onPlayMatch={handlePlaySports} onPlayHighlight={handlePlayHighlight} />}
-                    {currentView === 'webtoon' && <WebtoonView onBack={() => { setCurrentView('home'); window.history.pushState({}, '', '/'); }} onRead={handleReadWebtoon} />}
+                    {currentView === 'anime' && (
+                        <AnimeView 
+                            onBack={() => { 
+                                setCurrentView('home'); 
+                                window.history.pushState({}, '', '/'); 
+                                resetToHomeSEO(); 
+                            }} 
+                            onPlayStream={(title, sources, poster) => {
+                              setPlayerState({
+                                isOpen: true,
+                                title,
+                                poster,
+                                subjectId: 'anime-stream',
+                                sources: sources as any,
+                                subtitles: []
+                              });
+                            }}
+                        />
+                    )}
                     {currentView === 'adult' && <AdultView onBack={() => { setCurrentView('home'); window.history.pushState({}, '', '/'); }} onPlayStream={(title, sources, poster) => {
                       setPlayerState({
                         isOpen: true,
@@ -1110,8 +1472,19 @@ const App: React.FC = () => {
                         subtitles: []
                       });
                     }} />}
-                    {currentView === 'webtoon-reader' && <WebtoonReader url={readerState.url} title={readerState.title} onBack={handleBack} />}
                     {currentView === 'api-docs' && <ApiDocsView />}
+                    {currentView === 'novels' && (
+                        <NovelHubView 
+                            initialNovelId={selectedNovelId}
+                            onBack={() => { 
+                                setSelectedNovelId(null);
+                                setCurrentView('home'); 
+                                window.history.pushState({}, '', '/'); 
+                                resetToHomeSEO(); 
+                            }} 
+                        />
+                    )}
+                    {currentView === 'watch-party' && <WatchPartyView onBack={() => { setCurrentView('home'); window.history.pushState({}, '', '/'); resetToHomeSEO(); }} />}
                     {currentView === 'staff' && selectedStaff && <StaffView staffId={selectedStaff.id} staffName={selectedStaff.name} staffAvatar={selectedStaff.avatar} onBack={handleBack} onMovieClick={handleMovieClick} />}
                     {currentView === 'details' && selectedMovie && <DetailsView movie={selectedMovie} onBack={handleBack} onFetchSources={handleFetchSources} onPlayTrailer={handlePlayTrailer} onMovieClick={handleMovieClick} onDubClick={(d) => handleMovieClick({ title: "...", cover: "", thumbnail: "", type: selectedMovie.type, subjectId: d.subjectId, detailPath: d.detailPath })} onStaffClick={handleStaffClick} loading={loadingDetails} />}
                 </main>
@@ -1131,9 +1504,17 @@ const App: React.FC = () => {
                                 <DockLabel>News</DockLabel>
                                 <DockIcon><i className={`fa-solid fa-newspaper text-xl ${currentView === "news" ? "text-primary drop-shadow-[0_0_8px_rgba(0,229,255,0.8)]" : "text-gray-400"}`}></i></DockIcon>
                             </DockItem>
-                            <DockItem onClick={() => handleWebtoonClick()}>
-                                <DockLabel>Toon</DockLabel>
-                                <DockIcon><i className={`fa-solid fa-book-open text-xl ${currentView === "webtoon" ? "text-primary drop-shadow-[0_0_8px_rgba(0,229,255,0.8)]" : "text-gray-400"}`}></i></DockIcon>
+                            <DockItem onClick={() => handleAnimeClick()}>
+                                <DockLabel>Anime</DockLabel>
+                                <DockIcon><i className={`fa-solid fa-tv text-xl ${currentView === "anime" ? "text-primary drop-shadow-[0_0_8px_rgba(0,229,255,0.8)]" : "text-gray-400"}`}></i></DockIcon>
+                            </DockItem>
+                            <DockItem onClick={() => handleNovelsClick()}>
+                                <DockLabel>Novels</DockLabel>
+                                <DockIcon><i className={`fa-solid fa-book-open text-xl ${currentView === "novels" ? "text-cyan-400 drop-shadow-[0_0_8px_rgba(0,229,255,0.8)]" : "text-gray-400"}`}></i></DockIcon>
+                            </DockItem>
+                            <DockItem onClick={() => handleWatchPartyClick()}>
+                                <DockLabel>Watch Party</DockLabel>
+                                <DockIcon><i className={`fa-solid fa-users-viewfinder text-xl ${currentView === "watch-party" ? "text-purple-400 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]" : "text-gray-400"}`}></i></DockIcon>
                             </DockItem>
                             <DockItem onClick={() => handleTrendingClick()}>
                                 <DockLabel>Trending</DockLabel>
@@ -1150,6 +1531,7 @@ const App: React.FC = () => {
                         </Dock>
                     </div>
                 </div>
+                <TelegramModal isOpen={showTelegramModal} onClose={handleCloseTelegramModal} />
             </div>
         </div>
     );

@@ -400,6 +400,18 @@ const HomePage: React.FC<{
     return [];
   }, [selectedGenre, categoriesData, heroMovies]);
 
+  const effectiveHeroMovies = React.useMemo(() => {
+    if (heroMovies && heroMovies.length > 0) return heroMovies;
+    if (categoriesData && categoriesData.length > 0) {
+      for (const cat of categoriesData) {
+        if (cat.movies && cat.movies.length > 0) {
+          return cat.movies.slice(0, 6);
+        }
+      }
+    }
+    return [];
+  }, [heroMovies, categoriesData]);
+
   if (loading) {
     return (
       <div className="animate-fade-in">
@@ -412,7 +424,7 @@ const HomePage: React.FC<{
   return (
     <div className="pb-24">
       <Suspense fallback={<HeroSkeleton />}>
-        <Hero movies={heroMovies} onPlay={onMovieClick} onDetails={onMovieClick} />
+        <Hero movies={effectiveHeroMovies} onPlay={onMovieClick} onDetails={onMovieClick} />
       </Suspense>
 
       {/* Genre Navigation Bar */}

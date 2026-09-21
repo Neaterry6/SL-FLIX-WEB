@@ -19,6 +19,7 @@
     "@paper-design/shaders-react": "^0.0.80",
     "@resvg/resvg-js": "^2.6.2",
     "@types/react-lazy-load-image-component": "^1.6.5",
+    "@types/three": "^0.186.0",
     "clsx": "^2.1.1",
     "compression": "^1.8.1",
     "dotenv": "^17.3.1",
@@ -37,6 +38,7 @@
     "react-router-dom": "^6.22.0",
     "socket.io": "^4.8.3",
     "tailwind-merge": "^3.6.0",
+    "three": "^0.186.0",
     "tslint": "^5.20.1"
   },
   "devDependencies": {

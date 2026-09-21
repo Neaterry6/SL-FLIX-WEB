@@ -1,4 +1,4 @@
-import { MovieResult, CastMember, Season, CategoryData, VideoSource, Subtitle, ImdbSuggestion, LiveChannel, IpcResult, WebtoonItem, WebtoonDetail, WebtoonRead } from '../types';
+import { MovieResult, CastMember, Season, CategoryData, VideoSource, Subtitle, ImdbSuggestion, LiveChannel, IpcResult, WebtoonItem, WebtoonDetail, WebtoonRead, AnimeItem, AnimeDetail } from '../types';
 import { cacheService, CacheService } from './cache';
 import { safeConsole } from '../utils/productionGuard';
 const VIRTUAL_API_PATH = "/slflix/api/v1";
@@ -351,48 +351,62 @@ export const ApiService = {
                         enhanced.cast = stars.map((st: any) => ({ name: st.name || st.enName || st.staffName || "Unknown", character: st.character || st.role || '', avatar: st.avatar?.url || st.avatarUrl || st.avatar || st.photo || '', id: String(st.staffId || st.id || '') }));
                     }
                     let seasons: any[] = [];
-                    if (d.resource?.seasons && Array.isArray(d.resource.seasons)) {
-                        seasons = d.resource.seasons;
-                        console.log('[SLFLIX] Seasons from d.resource.seasons:', seasons);
-                    }
-                    else if (s.resource?.seasons && Array.isArray(s.resource.seasons)) {
-                        seasons = s.resource.seasons;
-                    }
-                    else if (s.seasons && Array.isArray(s.seasons)) {
-                        seasons = s.seasons;
-                    }
-                    else if (d.seasons && Array.isArray(d.seasons)) {
-                        seasons = d.seasons;
-                    }
-                    else if (s.episodes && Array.isArray(s.episodes)) {
-                        const seasonMap = new Map<number, number>();
-                        s.episodes.forEach((ep: any) => {
-                            const sn = ep.seasonNumber || ep.season || 1;
-                            seasonMap.set(sn, (seasonMap.get(sn) || 0) + 1);
-                        });
-                        seasons = Array.from(seasonMap.entries()).map(([seasonNumber, episodeCount]) => ({
-                            se: seasonNumber,
-                            maxEp: episodeCount,
-                            episodeCount
-                        }));
-                    }
-                    else if (s.totalEpisodes && s.totalSeasons) {
-                        for (let i = 1; i <= (s.totalSeasons || 1); i++) {
-                            seasons.push({
-                                se: i,
-                                maxEp: s.totalEpisodes,
-                                episodeCount: s.totalEpisodes
-                            });
+                    const rawType = String(s.type || enhanced.type || movie.type || '').trim();
+                    const isExplicitMovie = rawType.toLowerCase() === 'movie' || s.subjectType === 1 || rawType.toLowerCase().includes('feature');
+                    const isExplicitSeries = rawType.toLowerCase().includes('tv') || rawType.toLowerCase().includes('series') || rawType.toLowerCase().includes('anime') || rawType.toLowerCase().includes('show') || rawType.toLowerCase().includes('drama') || s.subjectType === 2;
+
+                    if (!isExplicitMovie) {
+                        if (d.resource?.seasons && Array.isArray(d.resource.seasons)) {
+                            seasons = d.resource.seasons;
+                            console.log('[SLFLIX] Seasons from d.resource.seasons:', seasons);
                         }
-                    }
-                    if (seasons.length > 0) {
-                        enhanced.seasons = seasons.map((se: any) => ({ 
-                            seasonNumber: se.seasonNumber || se.se || 1, 
-                            episodeCount: se.episodeCount || se.maxEp || (se.episodes ? se.episodes.length : 0) || se.totalEpisodes || 12 
-                        }));
-                        console.log('[SLFLIX] Seasons extracted:', enhanced.seasons);
-                    } else if (s.type === 'TV Series' || s.subjectType === 2 || s.category === 'Series') {
-                        enhanced.seasons = [{ seasonNumber: 1, episodeCount: s.episodeCount || s.totalEpisodes || 12 }];
+                        else if (s.resource?.seasons && Array.isArray(s.resource.seasons)) {
+                            seasons = s.resource.seasons;
+                        }
+                        else if (s.seasons && Array.isArray(s.seasons)) {
+                            seasons = s.seasons;
+                        }
+                        else if (d.seasons && Array.isArray(d.seasons)) {
+                            seasons = d.seasons;
+                        }
+                        else if (s.episodes && Array.isArray(s.episodes)) {
+                            const seasonMap = new Map<number, number>();
+                            s.episodes.forEach((ep: any) => {
+                                const sn = ep.seasonNumber || ep.season || 1;
+                                seasonMap.set(sn, (seasonMap.get(sn) || 0) + 1);
+                            });
+                            seasons = Array.from(seasonMap.entries()).map(([seasonNumber, episodeCount]) => ({
+                                se: seasonNumber,
+                                maxEp: episodeCount,
+                                episodeCount
+                            }));
+                        }
+                        else if (s.totalEpisodes && s.totalSeasons && isExplicitSeries) {
+                            for (let i = 1; i <= (s.totalSeasons || 1); i++) {
+                                seasons.push({
+                                    se: i,
+                                    maxEp: s.totalEpisodes,
+                                    episodeCount: s.totalEpisodes
+                                });
+                            }
+                        }
+
+                        if (seasons.length > 0) {
+                            // Filter out single-episode single-season movie artifacts
+                            const parsedSeasons = seasons.map((se: any) => ({ 
+                                seasonNumber: se.seasonNumber || se.se || 1, 
+                                episodeCount: se.episodeCount || se.maxEp || (se.episodes ? se.episodes.length : 0) || se.totalEpisodes || 1 
+                            }));
+                            const totalEpisodesAcrossSeasons = parsedSeasons.reduce((acc, curr) => acc + (curr.episodeCount || 0), 0);
+                            if (totalEpisodesAcrossSeasons > 1 || parsedSeasons.length > 1 || isExplicitSeries) {
+                                enhanced.seasons = parsedSeasons;
+                            }
+                        } else if (isExplicitSeries) {
+                            enhanced.seasons = [{ seasonNumber: 1, episodeCount: s.episodeCount || s.totalEpisodes || 1 }];
+                        }
+                    } else {
+                        // Explicitly clear any seasons for movies
+                        enhanced.seasons = undefined;
                     }
                     enhanced.trailerUrl = s.trailer?.videoAddress?.url || s.trailer?.url || s.trailerUrl;
                     if (s.dubs) enhanced.dubs = s.dubs;
@@ -718,6 +732,118 @@ export const ApiService = {
             return null;
         }
     },
+    getAnimeHome: async (): Promise<{ trending: AnimeItem[] }> => {
+        const cacheKey = 'anime:home';
+        const cached = cacheService.get<{ trending: AnimeItem[] }>(cacheKey);
+        if (cached && cached.data) {
+            return cached.data;
+        }
+        try {
+            let data = await fetchJson('/api/anime/home');
+            let items: AnimeItem[] = [];
+            if (data && data.success && Array.isArray(data.data)) {
+                items = data.data;
+            } else if (Array.isArray(data)) {
+                items = data;
+            } else {
+                // Direct fallback
+                const directRes = await fetch('https://api.omegatech.app/api/Anime/Nimegami?action=home');
+                const directJson = await directRes.json();
+                if (directJson && directJson.data) items = directJson.data;
+            }
+            const result = { trending: items };
+            cacheService.set(cacheKey, result, 10 * 60 * 1000);
+            return result;
+        } catch (e) {
+            console.error('[API] Failed to fetch anime home:', e);
+            try {
+                const directRes = await fetch('https://api.omegatech.app/api/Anime/Nimegami?action=home');
+                const directJson = await directRes.json();
+                if (directJson && directJson.data) return { trending: directJson.data };
+            } catch (err) {}
+            return { trending: [] };
+        }
+    },
+    searchAnime: async (query: string): Promise<{ results: AnimeItem[] }> => {
+        const cacheKey = `anime:search:${query}`;
+        const cached = cacheService.get<{ results: AnimeItem[] }>(cacheKey);
+        if (cached && cached.data) {
+            return cached.data;
+        }
+        try {
+            let data = await fetchJson(`/api/anime/search?query=${encodeURIComponent(query)}`);
+            let items: AnimeItem[] = [];
+            if (data && data.success && Array.isArray(data.data)) {
+                items = data.data;
+            } else if (Array.isArray(data)) {
+                items = data;
+            } else {
+                const directRes = await fetch(`https://api.omegatech.app/api/Anime/Nimegami?action=search&query=${encodeURIComponent(query)}`);
+                const directJson = await directRes.json();
+                if (directJson && directJson.data) items = directJson.data;
+            }
+            const result = { results: items };
+            cacheService.set(cacheKey, result, 5 * 60 * 1000);
+            return result;
+        } catch (e) {
+            console.error('[API] Failed to search anime:', e);
+            try {
+                const directRes = await fetch(`https://api.omegatech.app/api/Anime/Nimegami?action=search&query=${encodeURIComponent(query)}`);
+                const directJson = await directRes.json();
+                if (directJson && directJson.data) return { results: directJson.data };
+            } catch (err) {}
+            return { results: [] };
+        }
+    },
+    getAnimeDetail: async (url: string): Promise<AnimeDetail | null> => {
+        const cacheKey = `anime:detail:${url}`;
+        const cached = cacheService.get<AnimeDetail>(cacheKey);
+        if (cached && cached.data) {
+            return cached.data;
+        }
+        try {
+            let data = await fetchJson(`/api/anime/detail?url=${encodeURIComponent(url)}`);
+            if (data && (data.title || data.downloads)) {
+                cacheService.set(cacheKey, data, 30 * 60 * 1000);
+                return data;
+            }
+            // Direct fallback
+            const directRes = await fetch(`https://api.omegatech.app/api/Anime/Nimegami?action=detail&url=${encodeURIComponent(url)}`);
+            const directJson = await directRes.json();
+            if (directJson && directJson.data) {
+                cacheService.set(cacheKey, directJson.data, 30 * 60 * 1000);
+                return directJson.data;
+            }
+            return null;
+        } catch (e) {
+            console.error('[API] Failed to fetch anime detail:', e);
+            try {
+                const directRes = await fetch(`https://api.omegatech.app/api/Anime/Nimegami?action=detail&url=${encodeURIComponent(url)}`);
+                const directJson = await directRes.json();
+                if (directJson && directJson.data) return directJson.data;
+            } catch (err) {}
+            return null;
+        }
+    },
+    resolveAnimeStream: async (url: string, name: string = ''): Promise<{
+        success: boolean;
+        directUrl?: string;
+        streamProxyUrl?: string;
+        embedUrl?: string;
+        type?: 'mp4' | 'embed';
+        fileId?: string;
+    } | null> => {
+        try {
+            const data = await fetchJson(`/api/anime/stream-resolve?url=${encodeURIComponent(url)}&name=${encodeURIComponent(name)}`);
+            if (data && data.success) {
+                return data;
+            }
+            return null;
+        } catch (e) {
+            console.error('[API] Failed to resolve anime stream:', e);
+            return null;
+        }
+    },
     getAdultContent: async (query: string = 'Trending', page: number = 1): Promise<any> => {
         try {
             const data = await fetchJson(`/api/adult/xnxx?action=search&query=${encodeURIComponent(query)}&page=${page}`);
@@ -732,6 +858,37 @@ export const ApiService = {
             return data;
         } catch (e) {
             return null;
+        }
+    },
+    getNovels: async (action: string = 'search', query: string = 'Alone', opConfId?: string, page: number = 1): Promise<any> => {
+        try {
+            let url = `/api/novel?action=${action}&page=${page}`;
+            if (query) url += `&query=${encodeURIComponent(query)}`;
+            if (opConfId) url += `&opConfId=${opConfId}`;
+            return await fetchJson(url);
+        } catch (e) {
+            return { success: false, results: [] };
+        }
+    },
+    getNovelChapters: async (novelId: string): Promise<any> => {
+        try {
+            return await fetchJson(`/api/novel?action=chapters&novelId=${novelId}&perPage=100`);
+        } catch (e) {
+            return { success: false, chapters: [] };
+        }
+    },
+    getNovelChapterContent: async (novelId: string, chapterId: string): Promise<any> => {
+        try {
+            return await fetchJson(`/api/novel?action=chapter&novelId=${novelId}&chapterId=${chapterId}`);
+        } catch (e) {
+            return { success: false, content: '' };
+        }
+    },
+    getNovelRecommendations: async (novelId: string): Promise<any> => {
+        try {
+            return await fetchJson(`/api/novel?action=recommend&novelId=${novelId}`);
+        } catch (e) {
+            return { success: false, results: [] };
         }
     }
 };

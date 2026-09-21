@@ -138,6 +138,38 @@ export interface IpcResult {
     url: string;
   }>;
 }
+export interface AnimeItem {
+  title: string;
+  link: string;
+  image: string;
+}
+
+export interface AnimeDownloadServer {
+  server: string;
+  url: string;
+  resolution?: string;
+}
+
+export interface AnimeDetail {
+  title: string;
+  synopsis?: string;
+  video?: string;
+  downloads: AnimeDownloadServer[];
+  image?: string;
+  link?: string;
+}
+
+export interface CaptionSettings {
+  fontFamily: string;
+  fontSize: 'small' | 'medium' | 'large' | 'xlarge';
+  fontColor: string;
+  bgColor: string;
+  bgOpacity: number;
+  textShadow: string;
+  textOutline: boolean;
+  fontWeight: string;
+}
+
 export interface WebtoonItem {
   titleNo: string;
   title: string;

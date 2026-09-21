@@ -35,7 +35,7 @@ export const AdultView: React.FC<AdultViewProps> = ({ onBack }) => {
     '}',
     '',
     'export async function bootAdultLoungeModule(): Promise<void> {',
-    '  console.log("⚡ Re-indexing video cache and buffer pipelines...");',
+    '  console.log("Re-indexing video cache and buffer pipelines...");',
     '  await DRMProxy.verifyTokens();',
     '  await AdultEngine.refactorPlayerUI();',
     '',

@@ -109,6 +109,36 @@ const trackVisitor = (ip, page = '/') => {
         }
     }
 };
+const watchRooms = new Map();
+
+function getRoomCurrentTime(room) {
+    if (!room) return 0;
+    if (room.paused) return room.currentTime || 0;
+    const elapsed = (Date.now() - (room.updatedAt || Date.now())) / 1000;
+    return Math.max(0, (room.currentTime || 0) + elapsed);
+}
+
+function getActiveRoomsList() {
+    return Array.from(watchRooms.values()).map(r => ({
+        ...r,
+        currentTime: getRoomCurrentTime(r)
+    }));
+}
+
+function broadcastActiveRooms() {
+    io.emit('active_rooms_list', getActiveRoomsList());
+}
+
+setInterval(() => {
+    const oneDay = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    for (const [roomId, room] of watchRooms.entries()) {
+        if (now - room.updatedAt > oneDay) {
+            watchRooms.delete(roomId);
+        }
+    }
+}, 60 * 60 * 1000);
+
 io.on('connection', (socket) => {
     visitorData.onlineUsers++;
     io.emit('visitorUpdate', {
@@ -116,8 +146,114 @@ io.on('connection', (socket) => {
         todayVisitors: visitorData.todayVisitors,
         totalVisitors: visitorData.totalVisitors
     });
+
+    socket.on('get_active_rooms', () => {
+        socket.emit('active_rooms_list', getActiveRoomsList());
+    });
+
+    socket.on('create_room', ({ roomId, roomName, username, movie, season, episode }) => {
+        socket.join(roomId);
+        const now = Date.now();
+        const room = {
+            roomId,
+            roomName: roomName || `Room ${roomId}`,
+            creator: username,
+            movie: movie || null,
+            currentSeason: season || 1,
+            currentEpisode: episode || 1,
+            users: [{ id: socket.id, name: username, isCreator: true }],
+            currentTime: 0,
+            paused: false, // Starts playing continuous real-time movie stream
+            updatedAt: now
+        };
+        watchRooms.set(roomId, room);
+        broadcastActiveRooms();
+        socket.emit('room_state', room);
+    });
+
+    socket.on('join_room', ({ roomId, username }) => {
+        socket.join(roomId);
+        const room = watchRooms.get(roomId);
+        if (room) {
+            const currentComputedTime = getRoomCurrentTime(room);
+            if (!room.users.some(u => u.name === username)) {
+                room.users.push({ id: socket.id, name: username, isCreator: room.creator === username });
+            }
+            // Real-time continuous synchronized room state
+            const syncPayload = {
+                ...room,
+                currentTime: currentComputedTime
+            };
+            io.to(roomId).emit('room_state', syncPayload);
+            broadcastActiveRooms();
+        } else {
+            socket.emit('error_message', { message: 'Room not found or expired' });
+        }
+    });
+
+    socket.on('leave_room', ({ roomId, username }) => {
+        socket.leave(roomId);
+        const room = watchRooms.get(roomId);
+        if (room) {
+            room.users = room.users.filter(u => u.id !== socket.id && u.name !== username);
+            // Continuous movie playback continues for room even if users leave!
+            io.to(roomId).emit('room_user_left', { username, usersCount: room.users.length });
+            broadcastActiveRooms();
+        }
+    });
+
+    socket.on('room_action', ({ roomId, action, currentTime, paused, movie, season, episode, username }) => {
+        const room = watchRooms.get(roomId);
+        if (room) {
+            const now = Date.now();
+            if (currentTime !== undefined) {
+                room.currentTime = currentTime;
+            } else if (!room.paused) {
+                room.currentTime = getRoomCurrentTime(room);
+            }
+            if (paused !== undefined) {
+                room.paused = paused;
+            }
+            if (movie) room.movie = movie;
+            if (season !== undefined) room.currentSeason = season;
+            if (episode !== undefined) room.currentEpisode = episode;
+            room.updatedAt = now;
+
+            io.to(roomId).emit('room_sync', { 
+                action, 
+                currentTime: room.currentTime, 
+                paused: room.paused, 
+                movie: room.movie, 
+                season: room.currentSeason,
+                episode: room.currentEpisode,
+                username 
+            });
+            broadcastActiveRooms();
+        }
+    });
+
+    socket.on('room_chat', ({ roomId, username, message }) => {
+        io.to(roomId).emit('room_chat_message', { username, message, timestamp: Date.now() });
+    });
+
     socket.on('disconnect', () => {
         visitorData.onlineUsers = Math.max(0, visitorData.onlineUsers - 1);
+        for (const [roomId, room] of watchRooms.entries()) {
+            const beforeCount = room.users.length;
+            room.users = room.users.filter(u => u.id !== socket.id);
+            if (room.users.length !== beforeCount) {
+                io.to(roomId).emit('room_sync', {
+                    action: 'user_disconnect',
+                    currentTime: getRoomCurrentTime(room),
+                    paused: room.paused,
+                    movie: room.movie,
+                    season: room.currentSeason,
+                    episode: room.currentEpisode,
+                    usersCount: room.users.length
+                });
+            }
+        }
+        broadcastActiveRooms();
         io.emit('visitorUpdate', {
             onlineUsers: visitorData.onlineUsers,
             todayVisitors: visitorData.todayVisitors,
@@ -241,43 +377,58 @@ app.use('/api-player', (req, res) => {
 });
 console.log('[PROXY] API proxies ready: metadata/player/stream');
 app.use('/api', apiRouter);
+// Helper to dynamically extract the host and protocol regardless of proxy / Cloud Run
+function getBaseUrl(req) {
+    const proto = (req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0].trim();
+    const host = (req.headers['x-forwarded-host'] || req.headers['host'] || req.get('host') || 'localhost:3000').split(',')[0].trim();
+    return `${proto}://${host}`;
+}
+
+// Robust fallback movie detail fetcher
+async function fetchSubjectDetails(subjectId) {
+    if (!subjectId) return null;
+    const cleanId = String(subjectId).trim().replace(/\.png$/i, '');
+
+    // 1. Try Omegatech API if numeric
+    if (/^\d+$/.test(cleanId)) {
+        try {
+            const omRes = await fetch(`https://api.omegatech.app/api/movie/MovieBox-pro?action=detail&subjectId=${encodeURIComponent(cleanId)}`, {
+                signal: AbortSignal.timeout(3500)
+            });
+            if (omRes.ok) {
+                const data = await omRes.json();
+                if (data?.data?.subject) return data.data.subject;
+            }
+        } catch (e) {}
+    }
+
+    // 2. Try aoneroom BFF
+    try {
+        const queryParam = /^\d+$/.test(cleanId) ? `subjectId=${encodeURIComponent(cleanId)}` : `detailPath=${encodeURIComponent(cleanId)}`;
+        const h5Res = await fetch(`https://h5-api.aoneroom.com/wefeed-h5api-bff/detail?${queryParam}`, {
+            headers: { 'Origin': 'https://moviebox.ph', 'Referer': 'https://moviebox.ph/' },
+            signal: AbortSignal.timeout(3500)
+        });
+        if (h5Res.ok) {
+            const data = await h5Res.json();
+            if (data?.data?.subject) return data.data.subject;
+        }
+    } catch (e) {}
+
+    return null;
+}
+
+// Default fallback poster for when none is found
+const DEFAULT_OG_POSTER = 'https://pbcdnw.aoneroom.com/image/2023/08/10/d1a46b5a-e7c6-43f1-bdf0-c8f35e985854.jpg';
+
 // Helper for Movie / TV / Anime OG Generation
 async function handleMovieOrTvOg(req, res, subjectId, forcedTheme = null) {
     if (!subjectId || subjectId.length < 2) return res.status(400).send('Invalid ID');
-    const cacheKey = `og_${forcedTheme || 'auto'}_${subjectId}`;
+    const cleanId = String(subjectId).trim().replace(/\.png$/i, '');
+    const cacheKey = `og_${forcedTheme || 'auto'}_${cleanId}`;
 
     try {
-        const apiUrl = `https://h5-api.aoneroom.com/wefeed-h5api-bff/detail?subjectId=${subjectId}`;
-        let response = null;
-        let retries = 2;
-        while (retries >= 0) {
-            try {
-                response = await fetch(apiUrl, {
-                    headers: { 'Origin': 'https://moviebox.ph', 'Referer': 'https://moviebox.ph/' },
-                    signal: AbortSignal.timeout(4000)
-                });
-                if (response.ok) break;
-                if (response.status === 503 && retries > 0) {
-                    await new Promise(r => setTimeout(r, 800));
-                    retries--;
-                    continue;
-                }
-                break;
-            } catch (e) {
-                if (retries > 0) {
-                    retries--;
-                    await new Promise(r => setTimeout(r, 800));
-                    continue;
-                }
-                throw e;
-            }
-        }
-
-        let movie = null;
-        if (response && response.ok) {
-            const data = await response.json();
-            movie = data.data?.subject;
-        }
+        const movie = await fetchSubjectDetails(cleanId);
 
         // Cache staff members from this movie so staff pages can look them up instantly!
         if (movie && (movie.staffList || movie.staffs || movie.actors)) {
@@ -298,11 +449,11 @@ async function handleMovieOrTvOg(req, res, subjectId, forcedTheme = null) {
         const theme = forcedTheme || (isTvSeries ? 'tv' : 'movie');
 
         const title = movie?.title || movie?.name || (theme === 'tv' ? 'Featured TV Series' : 'Featured Movie');
-        const posterUrl = movie?.cover?.url || movie?.thumbnail || '';
-        const rating = movie?.imdbRatingValue || movie?.imdbRating || movie?.rating || '7.8';
-        const year = (movie?.releaseDate || '').split('-')[0] || '2025';
+        const posterUrl = movie?.cover?.url || movie?.thumbnail || DEFAULT_OG_POSTER;
+        const rating = movie?.imdbRatingValue || movie?.imdbRating || movie?.rating || '8.5';
+        const year = (movie?.releaseDate || '').split('-')[0] || '2026';
         const genre = movie?.genre || movie?.category || (isTvSeries ? 'TV Series' : 'Movie');
-        const description = (movie?.description || movie?.introduction || movie?.summary || '').trim();
+        const description = (movie?.description || movie?.introduction || movie?.summary || 'Watch online free in ultra-high definition on SLFLIX with zero ads.').trim();
         const duration = movie?.duration ? `${movie.duration}m` : (isTvSeries ? 'ALL SEASONS' : '4K HDR');
 
         const pngBuffer = await renderOgPng({
@@ -453,6 +604,55 @@ app.get(['/api/og/anime/:subjectId', '/api/og/anime/:subjectId.png', '/api/og/an
     }
 });
 
+// Novel OG endpoint
+app.get(['/api/og/novel/:novelId', '/api/og/novel/:novelId.png', '/api/og/novel', '/api/og/novel.png', '/api/og/novels.png'], async (req, res) => {
+    try {
+        let novelId = (req.params.novelId || '').replace(/\.png$/, '');
+        let title = req.query.title || 'SLFLIX Novel Hub';
+        let author = req.query.author || 'Popular Author';
+        let cover = req.query.cover || '';
+        let score = req.query.score || '8.5';
+        let views = req.query.views || '12K';
+
+        if (novelId && (!req.query.title || !cover)) {
+            try {
+                const nRes = await fetch(`https://api.omegatech.app/api/Novel/novel?action=detail&novelId=${encodeURIComponent(novelId)}`, {
+                    signal: AbortSignal.timeout(3000)
+                });
+                if (nRes.ok) {
+                    const nData = await nRes.json();
+                    if (nData.data || nData.result || nData.novel) {
+                        const info = nData.data || nData.result || nData.novel;
+                        title = info.title || title;
+                        author = info.author || author;
+                        cover = info.cover || cover;
+                        score = info.score || score;
+                        views = info.totalViews || views;
+                    }
+                }
+            } catch (e) {}
+        }
+
+        const pngBuffer = await renderOgPng({
+            theme: 'novel',
+            title: title,
+            description: `Read "${title}" by ${author} on SLFLIX Novel Hub. Immersive reading, auto-scroll and full chapters online.`,
+            posterUrl: cover || 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=800',
+            rating: score,
+            year: `${views} Views`,
+            genre: 'Romance, Fantasy, Action',
+            quality: 'FULL CHAPTERS'
+        }, `novel_${novelId || 'global'}`);
+
+        res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+        res.send(pngBuffer);
+    } catch (err) {
+        console.error('[OG Novel] Error:', err);
+        res.status(500).send('Error generating novel OG image');
+    }
+});
+
 // Home / Master OG endpoint
 app.get(['/api/og/home', '/api/og/home.png', '/api/og', '/api/og.png'], async (req, res) => {
     try {
@@ -460,6 +660,7 @@ app.get(['/api/og/home', '/api/og/home.png', '/api/og', '/api/og.png'], async (r
             theme: 'home',
             title: 'SLFLIX PRO Cinema Hub',
             description: 'Stream over 10,000+ blockbuster movies, binge-worthy TV series, anime, and live channels with zero ads and no registration.',
+            posterUrl: DEFAULT_OG_POSTER,
             rating: '9.8',
             year: '2026',
             genre: 'Movies, Series, Live TV',
@@ -488,76 +689,159 @@ app.get(['/api/og/:subjectId', '/api/og/:subjectId.png'], async (req, res) => {
 
     await handleMovieOrTvOg(req, res, subjectId);
 });
+
+// Robots.txt dynamic handler with host auto-detection
+app.get('/robots.txt', (req, res) => {
+    const baseUrl = getBaseUrl(req);
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.send(`User-agent: *
+Allow: /
+Disallow: /api/
+
+Sitemap: ${baseUrl}/sitemap.xml
+`);
+});
+
+// Sitemap in-memory cache
+const sitemapCache = new Map();
+
+// Dynamic Sitemap generator with host auto-detection
 app.get('/sitemap.xml', async (req, res) => {
-    res.header('Content-Type', 'application/xml');
-    const host = req.get('host');
-    const protocol = req.protocol;
-    const baseUrl = `${protocol}://${host}`;
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=1800, s-maxage=3600');
+    const baseUrl = getBaseUrl(req);
+
+    const cached = sitemapCache.get(baseUrl);
+    if (cached && Date.now() < cached.expiresAt) {
+        return res.send(cached.xml);
+    }
+
+    const today = new Date().toISOString().split('T')[0];
     let sitemap = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
         <loc>${baseUrl}/</loc>
+        <lastmod>${today}</lastmod>
         <changefreq>daily</changefreq>
         <priority>1.0</priority>
     </url>
     <url>
-        <loc>${baseUrl}/toplist</loc>
-        <changefreq>daily</changefreq>
-        <priority>0.8</priority>
-    </url>
-    <url>
         <loc>${baseUrl}/trending</loc>
+        <lastmod>${today}</lastmod>
         <changefreq>daily</changefreq>
         <priority>0.9</priority>
     </url>
     <url>
+        <loc>${baseUrl}/toplist</loc>
+        <lastmod>${today}</lastmod>
+        <changefreq>daily</changefreq>
+        <priority>0.8</priority>
+    </url>
+    <url>
         <loc>${baseUrl}/live-tv</loc>
+        <lastmod>${today}</lastmod>
         <changefreq>daily</changefreq>
         <priority>0.8</priority>
     </url>
     <url>
         <loc>${baseUrl}/news</loc>
+        <lastmod>${today}</lastmod>
         <changefreq>daily</changefreq>
-        <priority>0.8</priority>
+        <priority>0.7</priority>
+    </url>
+    <url>
+        <loc>${baseUrl}/sports</loc>
+        <lastmod>${today}</lastmod>
+        <changefreq>daily</changefreq>
+        <priority>0.7</priority>
     </url>
     <url>
         <loc>${baseUrl}/webtoon</loc>
+        <lastmod>${today}</lastmod>
         <changefreq>daily</changefreq>
-        <priority>0.8</priority>
+        <priority>0.7</priority>
+    </url>
+    <url>
+        <loc>${baseUrl}/staff</loc>
+        <lastmod>${today}</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>0.6</priority>
+    </url>
+    <url>
+        <loc>${baseUrl}/api-docs</loc>
+        <lastmod>${today}</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.5</priority>
     </url>`;
+
     try {
         const categories = [
             { id: 'trending', url: 'https://h5-api.aoneroom.com/wefeed-h5api-bff/subject/trending?page=0&perPage=50' },
             { id: 'movies', url: 'https://h5-api.aoneroom.com/wefeed-h5api-bff/ranking-list/content?id=997144265920760504&page=1&perPage=50' },
             { id: 'anime', url: 'https://h5-api.aoneroom.com/wefeed-h5api-bff/ranking-list/content?id=62133389738001440&page=1&perPage=50' }
         ];
+
+        const seenIds = new Set();
+
         for (const cat of categories) {
-            const response = await fetch(cat.url, {
-                headers: {
-                    'Origin': 'https://moviebox.ph',
-                    'Referer': 'https://moviebox.ph/'
-                }
-            });
-            const data = await response.json();
-            if (data.code === 0 && data.data?.subjectList) {
-                data.data.subjectList.forEach(movie => {
-                    const prefix = movie.type?.toLowerCase().includes('series') ? '/tv/' : '/movie/';
-                    const id = movie.subjectId || movie.detailPath;
-                    if (id) {
-                        sitemap += `
+            try {
+                const response = await fetch(cat.url, {
+                    headers: { 'Origin': 'https://moviebox.ph', 'Referer': 'https://moviebox.ph/' },
+                    signal: AbortSignal.timeout(3000)
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.code === 0 && data.data?.subjectList) {
+                        data.data.subjectList.forEach(movie => {
+                            const prefix = movie.type?.toLowerCase().includes('series') ? '/tv/' : '/movie/';
+                            const id = movie.subjectId || movie.detailPath;
+                            if (id && !seenIds.has(id)) {
+                                seenIds.add(id);
+                                sitemap += `
     <url>
         <loc>${baseUrl}${prefix}${id}</loc>
+        <lastmod>${today}</lastmod>
         <changefreq>weekly</changefreq>
-        <priority>0.6</priority>
+        <priority>0.7</priority>
+    </url>`;
+                            }
+                        });
+                    }
+                }
+            } catch (err) {}
+        }
+
+        // Also query Omegatech popular releases if possible
+        try {
+            const omRes = await fetch('https://api.omegatech.app/api/movie/MovieBox-pro?action=search&keyword=a&page=1', {
+                signal: AbortSignal.timeout(3000)
+            });
+            if (omRes.ok) {
+                const omData = await omRes.json();
+                const results = omData.data?.results || omData.data?.items || [];
+                results.forEach(m => {
+                    const id = m.subjectId || m.detailPath;
+                    if (id && !seenIds.has(id)) {
+                        seenIds.add(id);
+                        const isSeries = m.subjectType === 2 || (m.type && m.type.toLowerCase().includes('series'));
+                        sitemap += `
+    <url>
+        <loc>${baseUrl}${isSeries ? '/tv/' : '/movie/'}${id}</loc>
+        <lastmod>${today}</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>0.7</priority>
     </url>`;
                     }
                 });
             }
-        }
+        } catch (omErr) {}
     } catch (e) {
         console.error('[SITEMAP] Error fetching sitemap items:', e.message);
     }
+
     sitemap += '\n</urlset>';
+    sitemapCache.set(baseUrl, { xml: sitemap, expiresAt: Date.now() + 15 * 60 * 1000 });
     res.send(sitemap);
 });
 app.get('/api/visitors', (req, res) => {
@@ -681,6 +965,7 @@ async function getDynamicHtml(req, res) {
     const isStaff = section === 'staff';
     const isLive = section === 'live' || section === 'live-tv';
     const isAnime = section === 'anime';
+    const isNovel = section === 'novel' || section === 'novels';
     const isHome = pathParts.length === 0;
 
     let htmlPath = process.env.NODE_ENV === 'production' 
@@ -690,78 +975,47 @@ async function getDynamicHtml(req, res) {
         return res.sendFile(htmlPath);
     }
     let html = fs.readFileSync(htmlPath, 'utf8');
-    const hostUrl = `${req.protocol}://${req.get('host')}`;
+    const hostUrl = getBaseUrl(req);
     const fullUrl = `${hostUrl}${req.originalUrl}`;
 
     try {
-        if ((isMovie || isTv) && subjectId && subjectId.length > 5) {
-            const apiUrl = `https://h5-api.aoneroom.com/wefeed-h5api-bff/detail?subjectId=${subjectId}`;
-            let response;
-            let retries = 2;
-            while (retries >= 0) {
-                try {
-                    response = await fetch(apiUrl, {
-                        headers: {
-                            'Origin': 'https://moviebox.ph',
-                            'Referer': 'https://moviebox.ph/'
-                        },
-                        signal: AbortSignal.timeout(4000)
-                    });
-                    if (response.ok) break;
-                    if (response.status === 503 && retries > 0) {
-                        await new Promise(resolve => setTimeout(resolve, 800));
-                        retries--;
-                        continue;
-                    }
-                    break;
-                } catch (e) {
-                    if (retries > 0) {
-                        retries--;
-                        await new Promise(resolve => setTimeout(resolve, 800));
-                        continue;
-                    }
-                    throw e;
-                }
-            }
-            if (response && response.ok) {
-                const data = await response.json();
-                if (data.code === 0 && data.data && data.data.subject) {
-                    const movie = data.data.subject;
-                    const isTvSeries = isTv || movie.subjectType === 2 || movie.type === 'TV Series';
-                    const rawTitle = isTvSeries 
-                        ? `${movie.title} | Stream TV Series Online Free - SLFLIX`
-                        : `${movie.title} | Watch Online Free - SLFLIX`;
-                    const movieOwnDesc = (movie.description || '').trim();
-                    const rawDescription = movieOwnDesc || `Watch ${movie.title} online free in HD. ${movie.genre || 'Stream now on SLFLIX'}.`;
-                    const title = rawTitle.replace(/"/g, '&quot;');
-                    const description = rawDescription.replace(/"/g, '&quot;').replace(/[\r\n]+/g, ' ');
-                    const image = `${hostUrl}/api/og/${isTvSeries ? 'tv' : 'movie'}/${subjectId}.png`;
-                    const movieCoverUrl = movie.cover?.url || movie.thumbnail || `${hostUrl}/icons/slflix.png`;
+        if ((isMovie || isTv) && subjectId && subjectId.length > 2) {
+            const movie = await fetchSubjectDetails(subjectId);
+            if (movie) {
+                const isTvSeries = isTv || movie.subjectType === 2 || movie.type === 'TV Series' || movie.category === 'Series';
+                const rawTitle = isTvSeries 
+                    ? `${movie.title || movie.name} | Stream TV Series Online Free - SLFLIX`
+                    : `${movie.title || movie.name} | Watch Online Free - SLFLIX`;
+                const movieOwnDesc = (movie.description || movie.introduction || movie.summary || '').trim();
+                const rawDescription = movieOwnDesc || `Watch ${movie.title || movie.name} online free in HD. ${movie.genre || movie.category || 'Stream now on SLFLIX'}.`;
+                const title = rawTitle.replace(/"/g, '&quot;');
+                const description = rawDescription.replace(/"/g, '&quot;').replace(/[\r\n]+/g, ' ');
+                const image = `${hostUrl}/api/og/${isTvSeries ? 'tv' : 'movie'}/${subjectId}.png`;
+                const movieCoverUrl = movie.cover?.url || movie.thumbnail || DEFAULT_OG_POSTER;
 
-                    // Cache staff members for future staff page requests
-                    if (movie.staffList || movie.staffs || movie.actors) {
-                        const list = movie.staffList || movie.staffs || movie.actors || [];
-                        list.forEach(s => {
-                            const sId = String(s.staffId || s.id || '');
-                            if (sId) {
-                                staffMap.set(sId, {
-                                    name: s.name || s.enName || '',
-                                    avatar: s.avatar?.url || s.avatar || s.photo || '',
-                                    role: s.role || 'Actor'
-                                });
-                            }
-                        });
-                    }
-
-                    html = injectSeoTags(html, {
-                        title,
-                        description,
-                        image,
-                        icon: movieCoverUrl,
-                        url: fullUrl,
-                        type: isTvSeries ? 'video.tv_show' : 'video.movie'
+                // Cache staff members for future staff page requests
+                if (movie.staffList || movie.staffs || movie.actors) {
+                    const list = movie.staffList || movie.staffs || movie.actors || [];
+                    list.forEach(s => {
+                        const sId = String(s.staffId || s.id || '');
+                        if (sId) {
+                            staffMap.set(sId, {
+                                name: s.name || s.enName || '',
+                                avatar: s.avatar?.url || s.avatar || s.photo || '',
+                                role: s.role || 'Actor'
+                            });
+                        }
                     });
                 }
+
+                html = injectSeoTags(html, {
+                    title,
+                    description,
+                    image,
+                    icon: movieCoverUrl,
+                    url: fullUrl,
+                    type: isTvSeries ? 'video.tv_show' : 'video.movie'
+                });
             }
         } else if (isStaff && subjectId) {
             let staffInfo = staffMap.get(subjectId);
@@ -823,6 +1077,38 @@ async function getDynamicHtml(req, res) {
                 icon: `${hostUrl}/icons/slflix.png`,
                 url: fullUrl,
                 type: 'video.tv_show'
+            });
+        } else if (isNovel) {
+            let novelTitle = 'SLFLIX Novel Hub | Read Romance, Fantasy & Mystery Web Novels';
+            let novelDesc = 'Immersive e-reader with auto-scroll, chapter bookmarks, and thousands of top-rated web novels online for free on SLFLIX.';
+            let novelCover = `${hostUrl}/icons/slflix.png`;
+            let novelId = subjectId;
+
+            if (novelId) {
+                try {
+                    const nRes = await fetch(`https://api.omegatech.app/api/Novel/novel?action=detail&novelId=${encodeURIComponent(novelId)}`, {
+                        signal: AbortSignal.timeout(3000)
+                    });
+                    if (nRes.ok) {
+                        const nData = await nRes.json();
+                        const nInfo = nData.data || nData.result || nData.novel;
+                        if (nInfo?.title) {
+                            novelTitle = `${nInfo.title} | Read Free Online - SLFLIX Novel Hub`;
+                            novelDesc = (nInfo.summary || `Read ${nInfo.title} by ${nInfo.author || 'Author'} online free on SLFLIX Novel Hub.`).trim();
+                            novelCover = nInfo.cover || novelCover;
+                        }
+                    }
+                } catch (e) {}
+            }
+
+            const image = novelId ? `${hostUrl}/api/og/novel/${novelId}.png` : `${hostUrl}/api/og/novels.png`;
+            html = injectSeoTags(html, {
+                title: novelTitle.replace(/"/g, '&quot;'),
+                description: novelDesc.replace(/"/g, '&quot;').replace(/[\r\n]+/g, ' '),
+                image,
+                icon: novelCover,
+                url: fullUrl,
+                type: 'book'
             });
         } else if (isHome) {
             const title = 'SLFLIX | Watch Free Movies, TV Series & Live Streams Online in 4K';
