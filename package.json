@@ -12,7 +12,7 @@
     "server": "node server.js"
   },
   "engines": {
-    "node": "20.x"
+    "node": ">=18.0.0"
   },
   "dependencies": {
     "@paper-design/shaders": "^0.0.80",
