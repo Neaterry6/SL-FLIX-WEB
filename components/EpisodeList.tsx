@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { LazyLoadImage } from 'react-lazy-load-image-component';
 import 'react-lazy-load-image-component/src/effects/blur.css';
-import BulkDownloadButton from './BulkDownloadButton';
 import { getOptimizedImageUrl, DEFAULT_FAVICON_FALLBACK } from '../utils/image';
 interface Episode {
   episodeNumber: number;
@@ -255,11 +254,6 @@ const EpisodeList: React.FC<EpisodeListProps> = ({
               ({episodes.length} episodes)
             </span>
           </h3>
-          <BulkDownloadButton 
-            movieId={movieId} 
-            seasonNumber={seasonNumber} 
-            onClick={() => { console.log('Open bulk download for season', seasonNumber)}} 
-          />
         </div>
         {}
         <div className="flex items-center gap-2">

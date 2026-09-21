@@ -129,9 +129,6 @@ export default defineConfig(({ mode }) => {
               if (id.includes('lucide-react')) {
                 return 'vendor-icons';
               }
-              if (id.includes('jszip') || id.includes('file-saver')) {
-                return 'vendor-zip';
-              }
               return 'vendor-core';
             }
           },

@@ -24,7 +24,6 @@ import { WatchPartyView } from './components/WatchPartyView';
 import { useHomeData } from './hooks/useHomeData';
 import { useMovieDetails } from './hooks/useMovieDetails';
 import { getOptimizedImageUrl, DEFAULT_FAVICON_FALLBACK } from './utils/image';
-import BulkDownloadModal from './components/BulkDownloadModal';
 
 declare const io: any;
 import { 

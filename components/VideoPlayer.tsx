@@ -3,8 +3,6 @@ import { VideoSource, Subtitle, Season, MovieResult } from '../types';
 import Hls from 'hls.js';
 import SubtitleManager, { detectUserLanguage, findBestSubtitle } from './SubtitleManager';
 import SeasonSelector from './SeasonSelector';
-import BulkDownloadModal from './BulkDownloadModal';
-import VideoPlayerBulkModalWrapper from './VideoPlayerBulkModalWrapper';
 import { RetroTvError } from './RetroTvError';
 import { fetchAndParseSrt, SrtCue } from '../utils/srtParser';
 import { AudioSubtitleModal, AudioTrackItem } from './AudioSubtitleModal';
@@ -52,8 +50,6 @@ export interface VideoPlayerProps {
   currentEpisode?: number;
   onSeasonChange?: (season: number) => void;
   onEpisodeChange?: (season: number, episode: number) => void;
-  showBulkDownload?: boolean;
-  onToggleBulkDownload?: () => void;
   movieId?: string;
   seasonNumber?: number;
 }
@@ -259,7 +255,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
   const [showSettings, setShowSettings] = useState(false);
   const [showSourceSelect, setShowSourceSelect] = useState(false);
   const [showSeasonSelector, setShowSeasonSelector] = useState(false);
-  const [showBulkDownload, setShowBulkDownload] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [resizeMode, setResizeMode] = useState<'contain' | 'cover'>('contain');
   const [activeSourceIndex, setActiveSourceIndex] = useState(() => {
@@ -1650,7 +1645,6 @@ const StreamingPlayer: React.FC<VideoPlayerProps> = ({
             </button>
             {isSeries && movie && (
               <>
-                <VideoPlayerBulkModalWrapper movieId={movie.subjectId || movie.detailPath || ''} seasonNumber={currentSeason} />
                 <button 
                   onClick={() => setShowSettings(true)} 
                   className="w-9 h-9 flex items-center justify-center text-white hover:bg-white/10 rounded-full bg-white/10"
