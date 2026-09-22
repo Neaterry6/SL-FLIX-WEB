@@ -12,6 +12,7 @@ interface VideoHudProps {
   currentTime: number;
   duration: number;
   buffered: number;
+  bufferedRanges?: Array<{ start: number; end: number }>;
   volume: number;
   isMuted: boolean;
   playbackSpeed: number;
@@ -45,6 +46,7 @@ interface VideoHudProps {
   onOpenSettings: () => void;
   onOpenSourceSelect: () => void;
   onOpenAudioSubtitle: () => void;
+  onOpenEpisodes?: () => void;
   onSeek: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onSeekStart: () => void;
   onSeekEnd: (e: any) => void;
@@ -56,6 +58,10 @@ interface VideoHudProps {
   setIsHoveringSeek: (val: boolean) => void;
   
   isHoveringControlsRef: React.MutableRefObject<boolean>;
+  onSkipIntro?: () => void;
+  onSkipRecap?: () => void;
+  isRecapActive?: boolean;
+  isIntroActive?: boolean;
 }
 
 export const VideoHud: React.FC<VideoHudProps> = ({
@@ -66,6 +72,7 @@ export const VideoHud: React.FC<VideoHudProps> = ({
   currentTime,
   duration,
   buffered,
+  bufferedRanges = [],
   volume,
   isMuted,
   playbackSpeed,
@@ -99,6 +106,7 @@ export const VideoHud: React.FC<VideoHudProps> = ({
   onOpenSettings,
   onOpenSourceSelect,
   onOpenAudioSubtitle,
+  onOpenEpisodes,
   onSeek,
   onSeekStart,
   onSeekEnd,
@@ -109,14 +117,22 @@ export const VideoHud: React.FC<VideoHudProps> = ({
   isHoveringSeek,
   setIsHoveringSeek,
   
-  isHoveringControlsRef
+  isHoveringControlsRef,
+  onSkipIntro,
+  onSkipRecap,
+  isRecapActive = false,
+  isIntroActive = false,
 }) => {
-  const bufferedPercent = duration > 0 ? (buffered / duration) * 100 : 0;
-  const playedPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const validDuration = typeof duration === 'number' && !isNaN(duration) && isFinite(duration) && duration > 0 ? duration : 0;
+  const validCurrentTime = typeof currentTime === 'number' && !isNaN(currentTime) && isFinite(currentTime) && currentTime >= 0 ? currentTime : 0;
+  const validBuffered = typeof buffered === 'number' && !isNaN(buffered) && isFinite(buffered) && buffered >= 0 ? buffered : 0;
+
+  const bufferedPercent = validDuration > 0 ? Math.min(Math.max((validBuffered / validDuration) * 100, 0), 100) : 0;
+  const playedPercent = validDuration > 0 ? Math.min(Math.max((validCurrentTime / validDuration) * 100, 0), 100) : 0;
 
   return (
     <div 
-      className={`absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-black/80 transition-opacity flex flex-col justify-between z-30 ${showControls && !locked && !showSettings && !showSourceSelect && !showAudioSubtitleModal ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+      className={`absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-black/80 transition-opacity flex flex-col justify-between z-30 ${showControls && !locked ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
       onMouseEnter={() => { isHoveringControlsRef.current = true; }}
       onMouseLeave={() => { isHoveringControlsRef.current = false; }}
     >
@@ -173,8 +189,8 @@ export const VideoHud: React.FC<VideoHudProps> = ({
           </button>
           {isSeries && movie && (
             <button 
-              onClick={onOpenSettings} 
-              className="w-9 h-9 flex items-center justify-center text-white hover:bg-white/10 rounded-full bg-white/10"
+              onClick={onOpenEpisodes || onOpenSettings} 
+              className="w-9 h-9 flex items-center justify-center text-white hover:bg-white/10 rounded-full bg-white/10 transition-colors"
               title="Episodes"
             >
               <i className="fa-solid fa-list-ul"></i>
@@ -196,10 +212,10 @@ export const VideoHud: React.FC<VideoHudProps> = ({
           </button>
         </div>
       </div>
-      <div className={`absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity duration-300 ${playing && !isBuffering ? 'opacity-0' : 'opacity-100'}`}>
+      <div className={`absolute inset-0 flex items-center justify-center transition-opacity duration-300 ${playing || isBuffering ? 'opacity-0 pointer-events-none' : 'opacity-100 pointer-events-auto'}`}>
         <button 
           onClick={onTogglePlay} 
-          className="pointer-events-auto w-14 h-14 md:w-20 md:h-20 bg-white/90 hover:bg-white rounded-full flex items-center justify-center text-black shadow-lg hover:scale-110 transition-all animate-pulse"
+          className="w-14 h-14 md:w-20 md:h-20 bg-white/90 hover:bg-white rounded-full flex items-center justify-center text-black shadow-lg hover:scale-110 transition-all animate-pulse cursor-pointer"
         >
           <i className={`fa-solid ${playing ? 'fa-pause' : 'fa-play'} text-2xl md:text-3xl ml-1`}></i>
         </button>
@@ -217,7 +233,7 @@ export const VideoHud: React.FC<VideoHudProps> = ({
               onMouseEnter={() => setIsHoveringSeek(true)}
               onMouseLeave={() => setIsHoveringSeek(false)}
             >
-              {isHoveringSeek && duration > 0 && (
+              {isHoveringSeek && validDuration > 0 && typeof hoverSeekTime === 'number' && !isNaN(hoverSeekTime) && (
                 <div 
                   className="absolute bottom-9 pointer-events-none z-50 flex flex-col items-center -translate-x-1/2 transition-all duration-75"
                   style={{ left: `clamp(45px, ${hoverSeekPercent}%, calc(100% - 45px))` }}
@@ -233,21 +249,38 @@ export const VideoHud: React.FC<VideoHudProps> = ({
               )}
 
               <div className="absolute w-full h-1.5 bg-white/20 rounded-full overflow-hidden">
+                {/* Advanced Light Red Buffered Segments (cached or pre-fetched ahead) */}
+                {bufferedRanges && bufferedRanges.length > 0 ? (
+                  bufferedRanges.map((range, idx) => {
+                    const left = Math.max(0, Math.min(100, (range.start / validDuration) * 100));
+                    const right = Math.max(0, Math.min(100, (range.end / validDuration) * 100));
+                    const width = Math.max(0, right - left);
+                    return (
+                      <div 
+                        key={idx}
+                        className="absolute h-full bg-red-400/80 rounded-full transition-all duration-150 shadow-[0_0_8px_rgba(248,113,113,0.7)]" 
+                        style={{ left: `${left}%`, width: `${width}%` }}
+                      />
+                    );
+                  })
+                ) : (
+                  <div 
+                    className="absolute h-full bg-red-400/80 rounded-full transition-all duration-150 shadow-[0_0_8px_rgba(248,113,113,0.7)]" 
+                    style={{ width: `${bufferedPercent}%` }}
+                  />
+                )}
+                {/* Distinct Playhead / Played progress in Cyan */}
                 <div 
-                  className="absolute h-full bg-white/40 rounded-full" 
-                  style={{ width: `${bufferedPercent}%` }}
-                />
-                <div 
-                  className="absolute h-full bg-primary rounded-full" 
+                  className="absolute h-full bg-primary rounded-full shadow-[0_0_10px_rgba(0,229,255,0.8)]" 
                   style={{ width: `${playedPercent}%` }}
                 />
               </div>
               <input
                 type="range"
                 min="0"
-                max={duration || 0}
+                max={validDuration > 0 ? validDuration : 100}
                 step="0.1"
-                value={currentTime}
+                value={validCurrentTime}
                 onChange={onSeek}
                 onMouseDown={onSeekStart}
                 onMouseUp={onSeekEnd}
@@ -269,14 +302,37 @@ export const VideoHud: React.FC<VideoHudProps> = ({
           )}
           <div className="flex justify-between items-center text-white text-xs">
             <div className="flex items-center gap-3">
-              <button onClick={onTogglePlay}>
+              <button onClick={onTogglePlay} className="hover:text-primary transition-colors cursor-pointer">
                 <i className={`fa-solid ${playing ? 'fa-pause' : 'fa-play'}`}></i>
               </button>
               {!isLive && (
                 <>
-                  <button onClick={() => onSkip(-10)}><i className="fa-solid fa-rotate-left"></i></button>
-                  <button onClick={() => onSkip(10)}><i className="fa-solid fa-rotate-right"></i></button>
-                  <span className="font-mono">{formatTime(currentTime)} / {formatTime(duration)}</span>
+                  <button onClick={() => onSkip(-10)} className="hover:text-primary transition-colors cursor-pointer" title="Rewind 10s"><i className="fa-solid fa-rotate-left"></i></button>
+                  <button onClick={() => onSkip(10)} className="hover:text-primary transition-colors cursor-pointer" title="Forward 10s"><i className="fa-solid fa-rotate-right"></i></button>
+                  {isRecapActive && onSkipRecap && (
+                    <button
+                      onClick={onSkipRecap}
+                      className="px-2 py-0.5 bg-white/15 hover:bg-primary hover:text-black text-white rounded text-[11px] font-bold tracking-tight transition-all flex items-center gap-1 cursor-pointer"
+                      title="Skip Recap"
+                    >
+                      <i className="fa-solid fa-angles-right text-[10px]"></i>
+                      <span className="hidden sm:inline">Skip Recap</span>
+                    </button>
+                  )}
+                  {isSeries && onSkipIntro && (
+                    <button
+                      onClick={onSkipIntro}
+                      className="px-2 py-0.5 bg-white/15 hover:bg-primary hover:text-black text-white rounded text-[11px] font-bold tracking-tight transition-all flex items-center gap-1 cursor-pointer"
+                      title="Skip Intro (+85s)"
+                    >
+                      <i className="fa-solid fa-forward-step text-[10px]"></i>
+                      <span>Skip Intro</span>
+                      <span className="text-[9px] opacity-75 font-semibold">+85s</span>
+                    </button>
+                  )}
+                  <span className="font-mono">
+                    {formatTime(validCurrentTime)} / {validDuration > 0 ? formatTime(validDuration) : '--:--'}
+                  </span>
                 </>
               )}
               {isLive && <span className="text-red-500 font-bold">LIVE</span>}

@@ -1,48 +1,46 @@
 import React from 'react';
 
 export const FastStreamLoader: React.FC<{ buffered?: number }> = ({ buffered }) => {
+  // Strictly validate buffered number to prevent NaN or 0 leaking into React DOM text
+  const isNumber = typeof buffered === 'number' && !isNaN(buffered) && isFinite(buffered);
+  const bufferPercent = isNumber && buffered > 0 ? Math.min(Math.max(Math.round(buffered * 100), 0), 100) : null;
+  const hasProgress = bufferPercent !== null && bufferPercent > 2;
+
   return (
-    <div className="flex flex-col items-center p-8">
-      <div className="relative">
-        <div className="w-20 h-20 border-4 border-white/20 rounded-full animate-spin border-t-primary"></div>
-        <div className="absolute inset-0 w-20 h-20 border-4 border-transparent rounded-full bg-gradient-to-r from-primary/20 to-transparent animate-spin-slow border-l-primary"></div>
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="w-8 h-8 bg-gradient-to-br from-primary to-blue-500 rounded-full flex items-center justify-center shadow-lg">
-            <svg className="w-5 h-5 text-black animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.665z"></path>
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-            </svg>
+    <div className="flex flex-col items-center justify-center p-6 select-none pointer-events-none animate-fade-in">
+      {/* Modern Cinema Dual-Ring Spinner with Ambient Glow */}
+      <div className="relative flex items-center justify-center w-16 h-16 md:w-20 md:h-20">
+        <div className="absolute inset-0 rounded-full border-2 border-primary/20 animate-ping opacity-25"></div>
+        <div className="absolute inset-0 rounded-full border-[3px] border-white/10"></div>
+        <div className="absolute inset-0 rounded-full border-[3px] border-t-primary border-r-primary/50 border-b-transparent border-l-transparent animate-spin"></div>
+        <div className="w-3 h-3 rounded-full bg-primary shadow-[0_0_12px_rgba(0,229,255,0.8)] animate-pulse"></div>
+      </div>
+
+      {/* Clean Status & Buffered Progress */}
+      <div className="mt-5 flex flex-col items-center text-center max-w-xs">
+        <div className="flex items-center gap-2">
+          <span className="text-white text-sm font-semibold tracking-wide">Loading stream</span>
+          <div className="flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-primary animate-bounce [animation-delay:-0.3s]"></span>
+            <span className="w-1.5 h-1.5 rounded-full bg-primary animate-bounce [animation-delay:-0.15s]"></span>
+            <span className="w-1.5 h-1.5 rounded-full bg-primary animate-bounce"></span>
           </div>
         </div>
-      </div>
-      <div className="w-80 mt-8 mx-auto">
-        <div className="relative h-3 bg-white/10 rounded-2xl overflow-hidden shadow-lg">
-          <div className="absolute inset-0 bg-gradient-to-r from-gray-800/50 to-white/20 rounded-2xl"></div>
-          <div 
-            className="h-full bg-gradient-to-r from-primary via-blue-500 to-indigo-500 rounded-2xl relative shadow-primary/50 overflow-hidden transition-all duration-500 ease-out"
-            style={{ width: `${Math.min((buffered || 0) * 100, 100)}%` }}
-          >
-            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent transform translate-x-[-100%] animate-shimmer-smooth"></div>
+
+        {hasProgress ? (
+          <div className="mt-3 flex flex-col items-center w-40">
+            <div className="w-full h-1 bg-white/10 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-gradient-to-r from-primary to-cyan-300 rounded-full transition-all duration-300 ease-out shadow-[0_0_8px_rgba(0,229,255,0.6)]"
+                style={{ width: `${bufferPercent}%` }}
+              />
+            </div>
+            <span className="text-[11px] font-mono font-bold text-primary/90 mt-1.5">
+              {bufferPercent}% buffered
+            </span>
           </div>
-          {(buffered || 0) > 0 && (
-            <div 
-              className="absolute right-0 top-0 h-full w-1 bg-white/50 rounded-r-lg shadow-lg"
-              style={{ right: `${100 - (buffered || 0) * 100}%` }}
-            />
-          )}
-        </div>
-      </div>
-      <div className="mt-4 text-center">
-        <div className="flex items-center justify-center gap-2 mb-1">
-          <div className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse-fast"></div>
-          <div className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse-fast delay-100"></div>
-          <div className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse-fast delay-200"></div>
-        </div>
-        <span className="text-white/80 text-sm font-medium tracking-wide">Loading Stream</span>
-        {buffered && buffered > 0 && (
-          <span className="text-primary/80 text-xs mt-1 block font-mono">
-            {Math.round((buffered || 0) * 100)}% buffered
-          </span>
+        ) : (
+          <span className="text-gray-400 text-xs mt-1">Connecting to server...</span>
         )}
       </div>
     </div>

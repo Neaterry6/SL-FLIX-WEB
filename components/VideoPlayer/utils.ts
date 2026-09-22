@@ -1,10 +1,30 @@
 export const formatTime = (seconds: number): string => {
-  if (isNaN(seconds) || seconds === Infinity || seconds < 0) return "00:00";
+  if (typeof seconds !== 'number' || isNaN(seconds) || !isFinite(seconds) || seconds < 0) return "00:00";
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = Math.floor(seconds % 60);
   if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  return `${m}:${s.toString().padStart(2, '0')}`;
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+};
+
+/**
+ * Provides subtle tactile haptic feedback for mobile devices (Vibration API)
+ * @param type 'light' for play / scrub release, 'medium' for pause / skip, 'selection' for seek slider scrub ticks
+ */
+export const triggerHaptic = (type: 'light' | 'medium' | 'selection' = 'light') => {
+  try {
+    if (typeof window !== 'undefined' && 'navigator' in window && typeof window.navigator.vibrate === 'function') {
+      if (type === 'selection') {
+        window.navigator.vibrate(8); // micro-tick during slider scrubbing
+      } else if (type === 'medium') {
+        window.navigator.vibrate(18); // soft bump for pause / skip forward/backward
+      } else {
+        window.navigator.vibrate(10); // crisp light tap for play / resume
+      }
+    }
+  } catch (e) {
+    // Ignore environments where navigator.vibrate is disabled or unsupported
+  }
 };
 
 export const convertSrtToVtt = (srtContent: string): string => {

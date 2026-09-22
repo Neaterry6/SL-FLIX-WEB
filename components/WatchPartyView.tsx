@@ -1,9 +1,22 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { io as socketIoClient } from 'socket.io-client';
 import { ApiService } from '../services/api';
 import { MovieResult, VideoSource, Subtitle, Season } from '../types';
 import VideoPlayer from './VideoPlayer';
 
 declare const io: any;
+
+const getSocketInstance = () => {
+    try {
+        if (typeof socketIoClient === 'function') {
+            return socketIoClient();
+        }
+    } catch (e) {}
+    if (typeof io !== 'undefined') {
+        return io();
+    }
+    return null;
+};
 
 interface WatchRoom {
     roomId: string;
@@ -15,6 +28,8 @@ interface WatchRoom {
     users: { id: string; name: string; isCreator: boolean }[];
     currentTime: number;
     paused: boolean;
+    messages?: { id?: string; username: string; message: string; timestamp: number }[];
+    kickedUsers?: string[];
 }
 
 export const WatchPartyView: React.FC<{
@@ -26,13 +41,27 @@ export const WatchPartyView: React.FC<{
     const [currentRoom, setCurrentRoom] = useState<WatchRoom | null>(null);
     const [username, setUsername] = useState<string>(() => localStorage.getItem('slflix_username') || `Viewer_${Math.floor(Math.random() * 10000)}`);
     const [roomNameInput, setRoomNameInput] = useState('');
-    const [chatMessages, setChatMessages] = useState<{ username: string; message: string; timestamp: number }[]>([]);
+    const [chatMessages, setChatMessages] = useState<{ id?: string; username: string; message: string; timestamp: number }[]>([]);
     const [chatInput, setChatInput] = useState('');
+    const [sidebarTab, setSidebarTab] = useState<'chat' | 'participants'>('chat');
     const [inStreamLatestChat, setInStreamLatestChat] = useState<{ username: string; message: string } | null>(null);
     const [pauseNotice, setPauseNotice] = useState<string | null>(null);
     const [inviteCopied, setInviteCopied] = useState(false);
     const [roomSyncTimestamp, setRoomSyncTimestamp] = useState<number>(Date.now());
+    const chatBottomRef = useRef<HTMLDivElement>(null);
     
+    // Stable refs to prevent stale closure in socket listeners
+    const currentRoomRef = useRef<WatchRoom | null>(null);
+    const usernameRef = useRef<string>(username);
+
+    useEffect(() => {
+        currentRoomRef.current = currentRoom;
+    }, [currentRoom]);
+
+    useEffect(() => {
+        usernameRef.current = username;
+    }, [username]);
+
     // Main Search Engine Integration for Room Creation / Movie Switch
     const [searchQuery, setSearchQuery] = useState('');
     const [isSearching, setIsSearching] = useState(false);
@@ -58,9 +87,19 @@ export const WatchPartyView: React.FC<{
 
     // Initialize Socket
     useEffect(() => {
-        const s = typeof io !== 'undefined' ? io() : null;
+        const s = getSocketInstance();
         if (!s) return;
         setSocket(s);
+
+        // Reconnect handler: immediately re-join room if connection drops and recovers
+        s.on('connect', () => {
+            const activeRoom = currentRoomRef.current;
+            if (activeRoom) {
+                s.emit('join_room', { roomId: activeRoom.roomId, username: usernameRef.current });
+            } else {
+                s.emit('get_active_rooms');
+            }
+        });
 
         s.emit('get_active_rooms');
 
@@ -71,11 +110,94 @@ export const WatchPartyView: React.FC<{
         s.on('room_state', (room: WatchRoom) => {
             setCurrentRoom(room);
             setRoomSyncTimestamp(Date.now());
+            
+            // Restore persistent messages merged with server state
+            const storageKey = `slflix_chat_${room.roomId}`;
+            let cachedMsgs: any[] = [];
+            try {
+                const stored = localStorage.getItem(storageKey);
+                if (stored) cachedMsgs = JSON.parse(stored);
+            } catch (e) {}
+
+            const serverMsgs = Array.isArray(room.messages) ? room.messages : [];
+            const mergedMap = new Map<string, any>();
+            
+            [...cachedMsgs, ...serverMsgs].forEach(m => {
+                const key = m.id || `${m.timestamp}_${m.username}_${m.message}`;
+                mergedMap.set(key, m);
+            });
+
+            const mergedList = Array.from(mergedMap.values()).sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+            setChatMessages(mergedList);
+
+            try {
+                localStorage.setItem(storageKey, JSON.stringify(mergedList.slice(-200)));
+            } catch (e) {}
+
             if (room.movie) {
                 setSelectedMovie(room.movie);
                 if (room.currentSeason) setSelectedSeason(room.currentSeason);
                 if (room.currentEpisode) setSelectedEpisode(room.currentEpisode);
             }
+        });
+
+        s.on('room_user_joined', (data: { username: string; usersCount: number; users?: any[] }) => {
+            if (data.users) {
+                setCurrentRoom(prev => prev ? { ...prev, users: data.users || prev.users } : null);
+            }
+            setPauseNotice(`${data.username} joined the room`);
+            setTimeout(() => setPauseNotice(null), 3000);
+        });
+
+        s.on('room_user_left', (data: { username: string; usersCount: number; users?: any[] }) => {
+            if (data.users) {
+                setCurrentRoom(prev => prev ? { ...prev, users: data.users || prev.users } : null);
+            }
+        });
+
+        // User kicked from room by creator
+        s.on('room_kicked', (data: { roomId: string; message: string }) => {
+            alert(data.message || 'You were removed from this Watch Party session and cannot rejoin.');
+            setCurrentRoom(null);
+            setSelectedMovie(null);
+            setSources([]);
+            setSubtitles([]);
+            setChatMessages([]);
+            setPauseNotice(data.message || 'Removed from party');
+            window.history.pushState({}, '', '/watch-party');
+            s.emit('get_active_rooms');
+        });
+
+        // Participant was kicked notification
+        s.on('room_user_kicked', (data: { username: string; usersCount: number; users?: any[]; kickedUsers?: string[] }) => {
+            if (data.users) {
+                setCurrentRoom(prev => prev ? { 
+                    ...prev, 
+                    users: data.users || prev.users,
+                    kickedUsers: data.kickedUsers || prev.kickedUsers
+                } : null);
+            }
+            setPauseNotice(`${data.username} was removed by host`);
+            setTimeout(() => setPauseNotice(null), 3500);
+        });
+
+        s.on('room_ended', (data: { roomId: string; message: string; endedBy: string }) => {
+            setPauseNotice(data.message || 'This watch party has been ended by the host.');
+            setTimeout(() => {
+                setCurrentRoom(null);
+                setSelectedMovie(null);
+                setSources([]);
+                setSubtitles([]);
+                setChatMessages([]);
+                setPauseNotice(null);
+                window.history.pushState({}, '', '/watch-party');
+                s.emit('get_active_rooms');
+            }, 1200);
+        });
+
+        s.on('error_message', (data: { message: string }) => {
+            setPauseNotice(data.message || 'Error occurred');
+            setTimeout(() => setPauseNotice(null), 3500);
         });
 
         s.on('room_sync', (data: { action: string; currentTime: number; paused: boolean; movie: any; season?: number; episode?: number; username: string }) => {
@@ -109,8 +231,19 @@ export const WatchPartyView: React.FC<{
             }
         });
 
-        s.on('room_chat_message', (msg: { username: string; message: string; timestamp: number }) => {
-            setChatMessages(prev => [...prev, msg]);
+        s.on('room_chat_message', (msg: { id?: string; username: string; message: string; timestamp: number }) => {
+            setChatMessages(prev => {
+                // Deduplicate message
+                const exists = prev.some(m => (m.id && msg.id && m.id === msg.id) || (m.timestamp === msg.timestamp && m.username === msg.username && m.message === msg.message));
+                if (exists) return prev;
+                const updated = [...prev, msg];
+                if (currentRoomRef.current) {
+                    try {
+                        localStorage.setItem(`slflix_chat_${currentRoomRef.current.roomId}`, JSON.stringify(updated.slice(-200)));
+                    } catch (e) {}
+                }
+                return updated;
+            });
             setInStreamLatestChat({ username: msg.username, message: msg.message });
             setTimeout(() => setInStreamLatestChat(null), 5000);
         });
@@ -120,7 +253,8 @@ export const WatchPartyView: React.FC<{
         if (roomParam) {
             setTimeout(() => {
                 const storedName = localStorage.getItem('slflix_username') || username;
-                s.emit('join_room', { roomId: roomParam, username: storedName });
+                const cleanParam = roomParam.trim().toUpperCase();
+                s.emit('join_room', { roomId: cleanParam, username: storedName });
             }, 600);
         }
 
@@ -128,6 +262,11 @@ export const WatchPartyView: React.FC<{
             s.disconnect();
         };
     }, []);
+
+    // Auto-scroll chat to latest message
+    useEffect(() => {
+        chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [chatMessages]);
 
     const isCreator = currentRoom ? (currentRoom.users.find(u => u.name === username)?.isCreator || currentRoom.creator === username) : false;
 
@@ -279,9 +418,30 @@ export const WatchPartyView: React.FC<{
         if (!socket.connected) {
             socket.connect();
         }
+        const cleanId = String(roomId || '').trim().toUpperCase();
         localStorage.setItem('slflix_username', username);
-        socket.emit('join_room', { roomId, username });
-        window.history.pushState({}, '', `/watch-party?room=${roomId}`);
+        socket.emit('join_room', { roomId: cleanId, username });
+        window.history.pushState({}, '', `/watch-party?room=${cleanId}`);
+    };
+
+    const handleKickUser = (targetUsername: string) => {
+        if (!socket || !currentRoom) return;
+        const normTarget = String(targetUsername || '').trim();
+        if (!normTarget) return;
+        if (normTarget.toLowerCase() === currentRoom.creator.toLowerCase()) {
+            alert("The party host cannot be removed.");
+            return;
+        }
+        const confirmed = window.confirm(
+            `Remove "${normTarget}" from this Watch Party?\n\nOnce removed, they will be disconnected immediately and blocked from rejoining this room session.`
+        );
+        if (!confirmed) return;
+
+        socket.emit('kick_user', {
+            roomId: currentRoom.roomId,
+            targetUsername: normTarget,
+            creatorUsername: username
+        });
     };
 
     const handleLeaveRoom = () => {
@@ -298,10 +458,45 @@ export const WatchPartyView: React.FC<{
         }
     };
 
+    const handleKillRoom = (targetRoomId?: string) => {
+        const rId = targetRoomId || currentRoom?.roomId;
+        if (!rId || !socket) return;
+        const confirmDelete = window.confirm("Are you sure you want to end this Watch Party? The room will be permanently closed and removed for all viewers.");
+        if (!confirmDelete) return;
+
+        socket.emit('kill_room', { roomId: rId, username });
+        if (currentRoom && currentRoom.roomId === rId) {
+            setCurrentRoom(null);
+            setSelectedMovie(null);
+            setSources([]);
+            setSubtitles([]);
+            setChatMessages([]);
+            window.history.pushState({}, '', '/watch-party');
+        }
+        socket.emit('get_active_rooms');
+    };
+
     const handleSendChat = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!chatInput.trim() || !currentRoom || !socket) return;
-        socket.emit('room_chat', { roomId: currentRoom.roomId, username, message: chatInput.trim() });
+        const text = chatInput.trim();
+        if (!text || !currentRoom || !socket) return;
+
+        const optimisticMsg = {
+            id: 'msg_local_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+            username,
+            message: text,
+            timestamp: Date.now()
+        };
+
+        setChatMessages(prev => {
+            const updated = [...prev, optimisticMsg];
+            try {
+                localStorage.setItem(`slflix_chat_${currentRoom.roomId}`, JSON.stringify(updated.slice(-200)));
+            } catch (err) {}
+            return updated;
+        });
+
+        socket.emit('room_chat', { roomId: currentRoom.roomId, username, message: text });
         setChatInput('');
     };
 
@@ -468,12 +663,26 @@ export const WatchPartyView: React.FC<{
                                                     </div>
                                                 )}
                                             </div>
-                                            <button 
-                                                onClick={() => handleJoinRoom(room.roomId)}
-                                                className="w-full py-2.5 bg-cyan-500 hover:bg-cyan-400 text-black font-extrabold text-xs rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md"
-                                            >
-                                                <i className="fa-solid fa-play"></i> Join & Watch Party
-                                            </button>
+                                            <div className="flex items-center gap-2">
+                                                <button 
+                                                    onClick={() => handleJoinRoom(room.roomId)}
+                                                    className="flex-1 py-2.5 bg-cyan-500 hover:bg-cyan-400 text-black font-extrabold text-xs rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                                                >
+                                                    <i className="fa-solid fa-play"></i> Join & Watch Party
+                                                </button>
+                                                {(room.creator === username || room.creator === localStorage.getItem('slflix_username')) && (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleKillRoom(room.roomId);
+                                                        }}
+                                                        className="px-3 py-2.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 font-bold text-xs rounded-xl transition-all flex items-center justify-center cursor-pointer"
+                                                        title="Permanently End Party"
+                                                    >
+                                                        <i className="fa-solid fa-trash-can"></i>
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
@@ -691,60 +900,186 @@ export const WatchPartyView: React.FC<{
                                     {/* Leave Room */}
                                     <button 
                                         onClick={handleLeaveRoom}
-                                        className="px-3.5 py-2 bg-red-500/20 text-red-400 hover:bg-red-500 hover:text-white font-bold text-xs rounded-xl transition-all cursor-pointer"
+                                        className="px-3.5 py-2 bg-white/10 hover:bg-white/20 text-white font-bold text-xs rounded-xl transition-all cursor-pointer"
                                     >
                                         Leave
                                     </button>
+
+                                    {/* Creator Kill / End Party Button */}
+                                    {isCreator && (
+                                        <button 
+                                            onClick={() => handleKillRoom()}
+                                            className="px-3.5 py-2 bg-red-600/25 hover:bg-red-600 text-red-300 hover:text-white border border-red-500/40 font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-lg shadow-red-500/10"
+                                            title="Permanently close this watch party for everyone"
+                                        >
+                                            <i className="fa-solid fa-trash-can"></i>
+                                            <span>End Party</span>
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         </div>
 
                         {/* ROOM CHAT & PARTICIPANTS SIDEBAR */}
                         <div className="bg-[#121322] border border-white/10 rounded-3xl p-5 flex flex-col h-[580px] shadow-2xl">
+                            {/* Header with Dual Tabs: Chat & Participants */}
                             <div className="flex items-center justify-between pb-3 border-b border-white/10 mb-3">
-                                <h3 className="text-xs font-bold uppercase tracking-widest text-cyan-400 flex items-center gap-2">
-                                    <i className="fa-solid fa-comments"></i> Room Chat ({currentRoom.users.length})
-                                </h3>
+                                <div className="flex items-center gap-1.5 bg-black/40 p-1 rounded-2xl border border-white/5">
+                                    <button
+                                        type="button"
+                                        onClick={() => setSidebarTab('chat')}
+                                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                                            sidebarTab === 'chat' 
+                                                ? 'bg-cyan-500 text-black shadow-md shadow-cyan-500/20' 
+                                                : 'text-gray-400 hover:text-white hover:bg-white/5'
+                                        }`}
+                                    >
+                                        <i className="fa-solid fa-comments"></i>
+                                        <span>Chat</span>
+                                        <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${sidebarTab === 'chat' ? 'bg-black/20 text-black' : 'bg-white/10 text-gray-300'}`}>
+                                            {chatMessages.length}
+                                        </span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setSidebarTab('participants')}
+                                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                                            sidebarTab === 'participants' 
+                                                ? 'bg-cyan-500 text-black shadow-md shadow-cyan-500/20' 
+                                                : 'text-gray-400 hover:text-white hover:bg-white/5'
+                                        }`}
+                                    >
+                                        <i className="fa-solid fa-users"></i>
+                                        <span>Users</span>
+                                        <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${sidebarTab === 'participants' ? 'bg-black/20 text-black' : 'bg-white/10 text-gray-300'}`}>
+                                            {currentRoom.users.length}
+                                        </span>
+                                    </button>
+                                </div>
                                 <span className="text-[10px] text-emerald-400 font-bold flex items-center gap-1">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Live
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Live
                                 </span>
                             </div>
 
-                            {/* Chat messages list */}
-                            <div className="flex-1 overflow-y-auto space-y-2.5 mb-3 pr-1">
-                                {chatMessages.length === 0 ? (
-                                    <div className="text-center py-20 text-gray-500 text-xs">
-                                        No messages yet. Send a message to the watch room!
-                                    </div>
-                                ) : (
-                                    chatMessages.map((msg, i) => {
-                                        const isMe = msg.username === username;
-                                        return (
-                                            <div key={i} className={`p-2.5 rounded-xl border ${isMe ? 'bg-cyan-500/10 border-cyan-500/30 ml-4' : 'bg-white/5 border-white/5 mr-4'}`}>
-                                                <div className="flex items-center justify-between text-[10px] font-bold mb-1">
-                                                    <span className={isMe ? 'text-cyan-300' : 'text-purple-300'}>{msg.username}</span>
-                                                    <span className="text-gray-500 text-[9px]">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                                </div>
-                                                <div className="text-xs text-gray-200 leading-relaxed break-words">{msg.message}</div>
+                            {sidebarTab === 'chat' ? (
+                                <>
+                                    {/* Chat messages list */}
+                                    <div className="flex-1 overflow-y-auto space-y-2.5 mb-3 pr-1">
+                                        {chatMessages.length === 0 ? (
+                                            <div className="text-center py-20 text-gray-500 text-xs">
+                                                No messages yet. Send a message to the watch room!
                                             </div>
-                                        );
-                                    })
-                                )}
-                            </div>
+                                        ) : (
+                                            chatMessages.map((msg, i) => {
+                                                const isMe = msg.username === username;
+                                                return (
+                                                    <div key={msg.id || i} className={`p-2.5 rounded-xl border ${isMe ? 'bg-cyan-500/10 border-cyan-500/30 ml-4' : 'bg-white/5 border-white/5 mr-4'}`}>
+                                                        <div className="flex items-center justify-between text-[10px] font-bold mb-1">
+                                                            <span className={isMe ? 'text-cyan-300' : 'text-purple-300'}>{msg.username} {isMe && '(You)'}</span>
+                                                            <span className="text-gray-500 text-[9px]">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                        </div>
+                                                        <div className="text-xs text-gray-200 leading-relaxed break-words">{msg.message}</div>
+                                                    </div>
+                                                );
+                                            })
+                                        )}
+                                        <div ref={chatBottomRef} />
+                                    </div>
 
-                            {/* Chat input box */}
-                            <form onSubmit={handleSendChat} className="flex gap-2">
-                                <input 
-                                    type="text" 
-                                    value={chatInput} 
-                                    onChange={(e) => setChatInput(e.target.value)} 
-                                    placeholder="Type message..." 
-                                    className="flex-1 bg-white/5 border border-white/10 rounded-xl py-2 px-3 text-xs text-white outline-none focus:border-cyan-500"
-                                />
-                                <button type="submit" className="px-4 py-2 bg-cyan-500 text-black font-black text-xs rounded-xl hover:scale-105 transition-transform cursor-pointer">
-                                    Send
-                                </button>
-                            </form>
+                                    {/* Chat input box */}
+                                    <form onSubmit={handleSendChat} className="flex gap-2">
+                                        <input 
+                                            type="text" 
+                                            value={chatInput} 
+                                            onChange={(e) => setChatInput(e.target.value)} 
+                                            placeholder="Type message..." 
+                                            className="flex-1 bg-white/5 border border-white/10 rounded-xl py-2 px-3 text-xs text-white outline-none focus:border-cyan-500 transition-colors"
+                                        />
+                                        <button type="submit" className="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-black font-black text-xs rounded-xl hover:scale-105 transition-transform cursor-pointer">
+                                            Send
+                                        </button>
+                                    </form>
+                                </>
+                            ) : (
+                                /* Participants Tab with Kick Mechanism */
+                                <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+                                    {isCreator && (
+                                        <div className="bg-purple-900/20 border border-purple-500/30 rounded-xl p-2.5 text-[11px] text-purple-200 flex items-center gap-2 mb-2">
+                                            <i className="fa-solid fa-shield-halved text-purple-400 text-sm"></i>
+                                            <span>You are the Host. You can remove any participant to disconnect and ban them from this session.</span>
+                                        </div>
+                                    )}
+
+                                    <div className="space-y-2">
+                                        {currentRoom.users.map((u) => {
+                                            const isUserCreator = u.isCreator || u.name.toLowerCase() === currentRoom.creator.toLowerCase();
+                                            const isMe = u.name === username;
+
+                                            return (
+                                                <div 
+                                                    key={u.id || u.name} 
+                                                    className="flex items-center justify-between p-2.5 rounded-2xl bg-white/5 border border-white/10 hover:border-white/20 transition-all"
+                                                >
+                                                    <div className="flex items-center gap-3 min-w-0">
+                                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs shrink-0 ${
+                                                            isUserCreator ? 'bg-amber-400/20 text-amber-300 border border-amber-400/40' : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                                                        }`}>
+                                                            {u.name.charAt(0).toUpperCase()}
+                                                        </div>
+                                                        <div className="min-w-0">
+                                                            <div className="text-xs font-bold text-white truncate flex items-center gap-1.5">
+                                                                <span>{u.name}</span>
+                                                                {isMe && <span className="text-[10px] text-cyan-400 font-normal">(You)</span>}
+                                                            </div>
+                                                            <div className="flex items-center gap-1 mt-0.5">
+                                                                {isUserCreator ? (
+                                                                    <span className="text-[9px] font-bold text-amber-300 bg-amber-400/15 border border-amber-400/30 px-1.5 py-0.2 rounded-md flex items-center gap-1">
+                                                                        <i className="fa-solid fa-crown text-[8px]"></i> Host
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="text-[9px] font-semibold text-gray-400 bg-white/5 px-1.5 py-0.2 rounded-md">
+                                                                        Viewer
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Kick button: visible to room creator for other participants */}
+                                                    {isCreator && !isUserCreator && !isMe && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleKickUser(u.name)}
+                                                            className="px-2.5 py-1 bg-red-600/20 hover:bg-red-600 text-red-300 hover:text-white border border-red-500/40 rounded-xl text-[11px] font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm hover:shadow-red-500/20"
+                                                            title={`Remove ${u.name} from Watch Party`}
+                                                        >
+                                                            <i className="fa-solid fa-user-xmark"></i>
+                                                            <span>Kick</span>
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+
+                                    {/* Barred / Kicked Users Session Log */}
+                                    {currentRoom.kickedUsers && currentRoom.kickedUsers.length > 0 && (
+                                        <div className="mt-4 pt-3 border-t border-white/10">
+                                            <div className="text-[10px] font-bold uppercase tracking-wider text-red-400 flex items-center gap-1.5 mb-2">
+                                                <i className="fa-solid fa-ban"></i>
+                                                <span>Barred from Session ({currentRoom.kickedUsers.length})</span>
+                                            </div>
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {currentRoom.kickedUsers.map((kName, idx) => (
+                                                    <span key={idx} className="text-[10px] bg-red-500/10 text-red-300 border border-red-500/20 px-2 py-0.5 rounded-lg flex items-center gap-1">
+                                                        <i className="fa-solid fa-user-slash text-[8px]"></i> {kName}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}

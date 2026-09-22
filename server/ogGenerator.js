@@ -18,6 +18,17 @@ try {
     console.warn('[OG Generator] Warning loading font buffers:', e.message);
 }
 
+// Pre-load default SLFLIX logo data URI
+let defaultLogoDataUri = '';
+try {
+    const defaultLogoPath = path.resolve(__dirname, '../public/icons/slflix.png');
+    if (fs.existsSync(defaultLogoPath)) {
+        defaultLogoDataUri = `data:image/png;base64,${fs.readFileSync(defaultLogoPath).toString('base64')}`;
+    }
+} catch (e) {
+    console.warn('[OG Generator] Warning preloading default logo:', e.message);
+}
+
 // In-memory LRU cache for generated PNGs
 const ogCache = new Map();
 const MAX_CACHE_SIZE = 800;
@@ -64,15 +75,37 @@ export function wrapText(text, maxCharsPerLine = 52, maxLines = 3) {
 }
 
 export async function fetchImageDataUri(url) {
-    if (!url || typeof url !== 'string') return '';
+    if (!url || typeof url !== 'string') return defaultLogoDataUri;
+    
+    // Check if it is a local file path
+    if (url.startsWith('/') || url.startsWith('.') || url.includes('public/icons/') || url.includes('icons/')) {
+        try {
+            const cleanPath = url.replace(/^\//, '');
+            const localFile = path.resolve(__dirname, '..', cleanPath.startsWith('public/') ? cleanPath : `public/${cleanPath}`);
+            if (fs.existsSync(localFile)) {
+                const ext = path.extname(localFile).toLowerCase();
+                const mime = ext === '.png' ? 'image/png' : (ext === '.webp' ? 'image/webp' : 'image/jpeg');
+                return `data:${mime};base64,${fs.readFileSync(localFile).toString('base64')}`;
+            }
+        } catch (e) {}
+    }
+
     try {
-        const res = await fetch(url, { signal: AbortSignal.timeout(3500) });
-        if (!res.ok) return '';
+        const res = await fetch(url, { 
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                'Referer': 'https://moviebox.ph/',
+                'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+            },
+            signal: AbortSignal.timeout(6500) 
+        });
+        if (!res.ok) return defaultLogoDataUri;
         const buf = await res.arrayBuffer();
+        if (!buf || buf.byteLength === 0) return defaultLogoDataUri;
         const mime = res.headers.get('content-type') || 'image/jpeg';
         return `data:${mime};base64,${Buffer.from(buf).toString('base64')}`;
     } catch (e) {
-        return '';
+        return defaultLogoDataUri;
     }
 }
 
@@ -216,7 +249,10 @@ export function buildOgSvg(options = {}) {
         : (themeType === 'live'
             ? `Watch ${rawTitle} live stream around the clock with zero buffering, multi-language commentary, and crystal clear 60FPS video.`
             : `Watch ${rawTitle} online free in ultra-high definition with multi-subtitles and zero interruptions on the official SLFLIX platform.`);
-    const rawDesc = (options.description && options.description.trim().length > 15) ? options.description.trim() : defaultDesc;
+    let rawDesc = (options.description || options.synopsis || '').trim();
+    if (!rawDesc || rawDesc.length < 5) {
+        rawDesc = defaultDesc;
+    }
     const descLines = wrapText(rawDesc, 52, maxSynopsisLines);
 
     const isCircleAvatar = theme.avatarShape === 'circle';

@@ -1231,6 +1231,10 @@ const App: React.FC = () => {
                 const epKey = `S${season}E${episode}`;
                 if (data[epKey] && data[epKey].time) {
                     initialTime = data[epKey].time;
+                } else if (data['S1E1'] && data['S1E1'].time) {
+                    initialTime = data['S1E1'].time;
+                } else if (data.time) {
+                    initialTime = data.time;
                 }
             } catch (e) {}
         }

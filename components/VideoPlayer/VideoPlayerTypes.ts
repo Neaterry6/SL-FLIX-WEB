@@ -1,5 +1,12 @@
 import { VideoSource, Subtitle, MovieResult } from '../../types';
 
+export interface ChapterMarker {
+  title: string;
+  startTime: number;
+  endTime: number;
+  type: 'intro' | 'recap' | 'credits' | 'chapter';
+}
+
 export interface WatchPartyProps {
   isHost: boolean;
   viewersCount: number;

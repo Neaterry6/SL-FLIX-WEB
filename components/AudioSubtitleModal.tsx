@@ -77,7 +77,7 @@ export const AudioSubtitleModal: React.FC<AudioSubtitleModalProps> = ({
 
   return (
     <div 
-      className="fixed inset-0 z-[150] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in"
+      className="fixed inset-0 z-[2500] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in"
       onClick={onClose}
     >
       <div 

@@ -119,25 +119,36 @@ function getRoomCurrentTime(room) {
 }
 
 function getActiveRoomsList() {
-    return Array.from(watchRooms.values()).map(r => ({
-        ...r,
-        currentTime: getRoomCurrentTime(r)
-    }));
+    const now = Date.now();
+    return Array.from(watchRooms.values())
+        // Prevent spam: only list rooms with active viewers or created less than 2 minutes ago
+        .filter(r => (r.users && r.users.length > 0) || (now - (r.updatedAt || now) < 2 * 60 * 1000))
+        .map(r => ({
+            ...r,
+            currentTime: getRoomCurrentTime(r)
+        }));
 }
 
 function broadcastActiveRooms() {
     io.emit('active_rooms_list', getActiveRoomsList());
 }
 
+// Clean up stale or empty rooms every 30 seconds to prevent room spam
 setInterval(() => {
-    const oneDay = 24 * 60 * 60 * 1000;
     const now = Date.now();
+    let hasChanges = false;
     for (const [roomId, room] of watchRooms.entries()) {
-        if (now - room.updatedAt > oneDay) {
+        const isEmpty = !room.users || room.users.length === 0;
+        // Delete empty rooms older than 3 minutes, or any room older than 12 hours
+        if ((isEmpty && now - (room.updatedAt || now) > 3 * 60 * 1000) || (now - (room.updatedAt || now) > 12 * 60 * 60 * 1000)) {
             watchRooms.delete(roomId);
+            hasChanges = true;
         }
     }
-}, 60 * 60 * 1000);
+    if (hasChanges) {
+        broadcastActiveRooms();
+    }
+}, 30 * 1000);
 
 io.on('connection', (socket) => {
     visitorData.onlineUsers++;
@@ -152,58 +163,179 @@ io.on('connection', (socket) => {
     });
 
     socket.on('create_room', ({ roomId, roomName, username, movie, season, episode }) => {
-        socket.join(roomId);
+        const cleanRoomId = String(roomId || '').trim().toUpperCase();
+        socket.join(cleanRoomId);
         const now = Date.now();
         const room = {
-            roomId,
-            roomName: roomName || `Room ${roomId}`,
+            roomId: cleanRoomId,
+            roomName: roomName || `Room ${cleanRoomId}`,
             creator: username,
             movie: movie || null,
             currentSeason: season || 1,
             currentEpisode: episode || 1,
             users: [{ id: socket.id, name: username, isCreator: true }],
+            messages: [],
+            kickedUsers: [],
             currentTime: 0,
             paused: false, // Starts playing continuous real-time movie stream
             updatedAt: now
         };
-        watchRooms.set(roomId, room);
+        watchRooms.set(cleanRoomId, room);
         broadcastActiveRooms();
         socket.emit('room_state', room);
     });
 
     socket.on('join_room', ({ roomId, username }) => {
-        socket.join(roomId);
-        const room = watchRooms.get(roomId);
+        const cleanRoomId = String(roomId || '').trim().toUpperCase();
+        const cleanUsername = String(username || '').trim();
+        const room = watchRooms.get(cleanRoomId);
         if (room) {
-            const currentComputedTime = getRoomCurrentTime(room);
-            if (!room.users.some(u => u.name === username)) {
-                room.users.push({ id: socket.id, name: username, isCreator: room.creator === username });
+            // Check if user is in the kicked/banned list for this room session
+            if (room.kickedUsers && room.kickedUsers.some(k => k.toLowerCase() === cleanUsername.toLowerCase())) {
+                socket.emit('room_kicked', { 
+                    roomId: cleanRoomId, 
+                    message: 'You were kicked from this Watch Party and cannot rejoin.' 
+                });
+                return;
             }
-            // Real-time continuous synchronized room state
+
+            socket.join(cleanRoomId);
+            const currentComputedTime = getRoomCurrentTime(room);
+            const isCreatorUser = room.creator.toLowerCase() === cleanUsername.toLowerCase();
+            const existingUserIndex = room.users.findIndex(u => u.name.toLowerCase() === cleanUsername.toLowerCase());
+            if (existingUserIndex >= 0) {
+                room.users[existingUserIndex].id = socket.id;
+                room.users[existingUserIndex].name = cleanUsername;
+            } else {
+                room.users.push({ id: socket.id, name: cleanUsername, isCreator: isCreatorUser });
+            }
+            room.updatedAt = Date.now();
+
             const syncPayload = {
                 ...room,
-                currentTime: currentComputedTime
+                currentTime: currentComputedTime,
+                messages: room.messages || []
             };
-            io.to(roomId).emit('room_state', syncPayload);
+            socket.emit('room_state', syncPayload);
+            io.to(cleanRoomId).emit('room_user_joined', { username: cleanUsername, usersCount: room.users.length, users: room.users });
             broadcastActiveRooms();
         } else {
-            socket.emit('error_message', { message: 'Room not found or expired' });
+            socket.emit('error_message', { message: 'Watch party not found or was ended by the host.' });
+        }
+    });
+
+    // Creator / Host can remove a participant from the room; once kicked, the user cannot rejoin the session
+    socket.on('kick_user', ({ roomId, targetUsername, creatorUsername }) => {
+        const cleanRoomId = String(roomId || '').trim().toUpperCase();
+        const room = watchRooms.get(cleanRoomId);
+        if (!room) return;
+
+        const isHost = room.creator.toLowerCase() === String(creatorUsername || '').trim().toLowerCase() ||
+                       room.users.some(u => u.id === socket.id && u.isCreator);
+        if (!isHost) {
+            socket.emit('error_message', { message: 'Only the Watch Party host can remove participants.' });
+            return;
+        }
+
+        const normTarget = String(targetUsername || '').trim();
+        if (normTarget.toLowerCase() === room.creator.toLowerCase()) {
+            socket.emit('error_message', { message: 'The party host cannot be removed.' });
+            return;
+        }
+
+        if (!room.kickedUsers) room.kickedUsers = [];
+        if (!room.kickedUsers.some(k => k.toLowerCase() === normTarget.toLowerCase())) {
+            room.kickedUsers.push(normTarget);
+        }
+
+        // Find sockets belonging to the target participant
+        const targetSockets = [];
+        room.users = room.users.filter(u => {
+            if (u.name.toLowerCase() === normTarget.toLowerCase()) {
+                targetSockets.push(u.id);
+                return false;
+            }
+            return true;
+        });
+
+        // Notify and disconnect all target user sockets from this room
+        for (const sockId of targetSockets) {
+            const targetSocket = io.sockets.sockets.get(sockId);
+            if (targetSocket) {
+                targetSocket.emit('room_kicked', {
+                    roomId: cleanRoomId,
+                    message: `You were removed from "${room.roomName}" by the host and cannot rejoin.`
+                });
+                targetSocket.leave(cleanRoomId);
+            }
+        }
+
+        const kickSysMsg = {
+            id: 'sys_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+            username: 'System',
+            message: `${normTarget} was removed from the party by the host.`,
+            timestamp: Date.now(),
+            isSystem: true
+        };
+        if (!room.messages) room.messages = [];
+        room.messages.push(kickSysMsg);
+        if (room.messages.length > 200) room.messages.shift();
+        room.updatedAt = Date.now();
+
+        // Broadcast to remaining room members
+        io.to(cleanRoomId).emit('room_chat_message', kickSysMsg);
+        io.to(cleanRoomId).emit('room_user_kicked', {
+            username: normTarget,
+            usersCount: room.users.length,
+            users: room.users,
+            kickedUsers: room.kickedUsers
+        });
+        broadcastActiveRooms();
+    });
+
+    // Creator / Host can permanently kill the party so it never shows again
+    socket.on('kill_room', ({ roomId, username }) => {
+        const cleanRoomId = String(roomId || '').trim().toUpperCase();
+        const room = watchRooms.get(cleanRoomId);
+        if (room) {
+            // Verify host identity or fallback to creator match
+            const isHost = room.creator === username || room.users.some(u => u.id === socket.id && u.isCreator);
+            if (isHost || room.users.length <= 1) {
+                io.to(cleanRoomId).emit('room_ended', { 
+                    roomId: cleanRoomId,
+                    message: `Watch party "${room.roomName}" was closed by the host (${username}).`,
+                    endedBy: username
+                });
+                io.in(cleanRoomId).socketsLeave(cleanRoomId);
+                watchRooms.delete(cleanRoomId);
+                broadcastActiveRooms();
+            } else {
+                socket.emit('error_message', { message: 'Only the party host can end this room.' });
+            }
         }
     });
 
     socket.on('leave_room', ({ roomId, username }) => {
-        socket.leave(roomId);
-        const room = watchRooms.get(roomId);
+        const cleanRoomId = String(roomId || '').trim().toUpperCase();
+        socket.leave(cleanRoomId);
+        const room = watchRooms.get(cleanRoomId);
         if (room) {
             room.users = room.users.filter(u => u.id !== socket.id && u.name !== username);
-            // Continuous movie playback continues for room even if users leave!
-            io.to(roomId).emit('room_user_left', { username, usersCount: room.users.length });
+            room.updatedAt = Date.now();
+            // If empty, delete immediately to stop list spamming
+            if (room.users.length === 0) {
+                watchRooms.delete(cleanRoomId);
+            } else {
+                io.to(cleanRoomId).emit('room_user_left', { username, usersCount: room.users.length, users: room.users });
+            }
             broadcastActiveRooms();
         }
     });
 
     socket.on('room_action', ({ roomId, action, currentTime, paused, movie, season, episode, username }) => {
-        const room = watchRooms.get(roomId);
+        const cleanRoomId = String(roomId || '').trim().toUpperCase();
+        socket.join(cleanRoomId);
+        const room = watchRooms.get(cleanRoomId);
         if (room) {
             const now = Date.now();
             if (currentTime !== undefined) {
@@ -219,7 +351,7 @@ io.on('connection', (socket) => {
             if (episode !== undefined) room.currentEpisode = episode;
             room.updatedAt = now;
 
-            io.to(roomId).emit('room_sync', { 
+            io.to(cleanRoomId).emit('room_sync', { 
                 action, 
                 currentTime: room.currentTime, 
                 paused: room.paused, 
@@ -233,27 +365,70 @@ io.on('connection', (socket) => {
     });
 
     socket.on('room_chat', ({ roomId, username, message }) => {
-        io.to(roomId).emit('room_chat_message', { username, message, timestamp: Date.now() });
+        const cleanRoomId = String(roomId || '').trim().toUpperCase();
+        const cleanUsername = String(username || 'Viewer').trim();
+        const text = String(message || '').trim();
+        if (!text) return;
+        
+        socket.join(cleanRoomId);
+        const room = watchRooms.get(cleanRoomId);
+
+        if (room && room.kickedUsers && room.kickedUsers.some(k => k.toLowerCase() === cleanUsername.toLowerCase())) {
+            socket.emit('room_kicked', { 
+                roomId: cleanRoomId, 
+                message: 'You were removed from this Watch Party and cannot participate.' 
+            });
+            socket.leave(cleanRoomId);
+            return;
+        }
+
+        const chatMsg = {
+            id: 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+            username: cleanUsername,
+            message: text,
+            timestamp: Date.now()
+        };
+
+        if (room) {
+            if (!room.messages) room.messages = [];
+            room.messages.push(chatMsg);
+            if (room.messages.length > 200) room.messages.shift();
+            room.updatedAt = Date.now();
+        }
+
+        io.to(cleanRoomId).emit('room_chat_message', chatMsg);
     });
 
     socket.on('disconnect', () => {
         visitorData.onlineUsers = Math.max(0, visitorData.onlineUsers - 1);
+        const now = Date.now();
+        let changed = false;
         for (const [roomId, room] of watchRooms.entries()) {
             const beforeCount = room.users.length;
             room.users = room.users.filter(u => u.id !== socket.id);
             if (room.users.length !== beforeCount) {
-                io.to(roomId).emit('room_sync', {
-                    action: 'user_disconnect',
-                    currentTime: getRoomCurrentTime(room),
-                    paused: room.paused,
-                    movie: room.movie,
-                    season: room.currentSeason,
-                    episode: room.currentEpisode,
-                    usersCount: room.users.length
-                });
+                changed = true;
+                room.updatedAt = now;
+                if (room.users.length === 0) {
+                    // Instantly clean up empty rooms on disconnect to prevent spamming
+                    watchRooms.delete(roomId);
+                } else {
+                    io.to(roomId).emit('room_sync', {
+                        action: 'user_disconnect',
+                        currentTime: getRoomCurrentTime(room),
+                        paused: room.paused,
+                        movie: room.movie,
+                        season: room.currentSeason,
+                        episode: room.currentEpisode,
+                        usersCount: room.users.length,
+                        users: room.users
+                    });
+                }
             }
         }
-        broadcastActiveRooms();
+        if (changed) {
+            broadcastActiveRooms();
+        }
         io.emit('visitorUpdate', {
             onlineUsers: visitorData.onlineUsers,
             todayVisitors: visitorData.todayVisitors,
@@ -393,25 +568,64 @@ async function fetchSubjectDetails(subjectId) {
     if (/^\d+$/.test(cleanId)) {
         try {
             const omRes = await fetch(`https://api.omegatech.app/api/movie/MovieBox-pro?action=detail&subjectId=${encodeURIComponent(cleanId)}`, {
-                signal: AbortSignal.timeout(3500)
+                headers: { 'Origin': 'https://moviebox.ph', 'Referer': 'https://moviebox.ph/' },
+                signal: AbortSignal.timeout(4000)
             });
             if (omRes.ok) {
                 const data = await omRes.json();
-                if (data?.data?.subject) return data.data.subject;
+                const s = data?.data?.subject || data?.data?.subjectDetail || data?.data?.detail || data?.data;
+                if (s && (s.title || s.name)) return s;
             }
         } catch (e) {}
     }
 
-    // 2. Try aoneroom BFF
+    // 2. Try aoneroom BFF (both subjectId and detailPath)
     try {
         const queryParam = /^\d+$/.test(cleanId) ? `subjectId=${encodeURIComponent(cleanId)}` : `detailPath=${encodeURIComponent(cleanId)}`;
         const h5Res = await fetch(`https://h5-api.aoneroom.com/wefeed-h5api-bff/detail?${queryParam}`, {
             headers: { 'Origin': 'https://moviebox.ph', 'Referer': 'https://moviebox.ph/' },
-            signal: AbortSignal.timeout(3500)
+            signal: AbortSignal.timeout(4000)
         });
         if (h5Res.ok) {
             const data = await h5Res.json();
-            if (data?.data?.subject) return data.data.subject;
+            const s = data?.data?.subject || data?.data?.subjectDetail || data?.data?.detail || data?.data;
+            if (s && (s.title || s.name)) return s;
+        }
+    } catch (e) {}
+
+    // 3. Try 123movienow BFF
+    try {
+        const queryParam = /^\d+$/.test(cleanId) ? `subjectId=${encodeURIComponent(cleanId)}` : `detailPath=${encodeURIComponent(cleanId)}`;
+        const mRes = await fetch(`https://123movienow.cc/wefeed-h5api-bff/detail?${queryParam}`, {
+            headers: { 'Origin': 'https://123movienow.cc', 'Referer': 'https://123movienow.cc/' },
+            signal: AbortSignal.timeout(4000)
+        });
+        if (mRes.ok) {
+            const data = await mRes.json();
+            const s = data?.data?.subject || data?.data?.subjectDetail || data?.data?.detail || data?.data;
+            if (s && (s.title || s.name)) return s;
+        }
+    } catch (e) {}
+
+    // 4. Try Search fallback if cleanId has non-numeric characters (e.g. slug/title)
+    try {
+        const searchKeyword = cleanId.replace(/[-_]+/g, ' ').replace(/\b(s\d+|e\d+)\b/gi, '').trim();
+        if (searchKeyword.length >= 2) {
+            const sRes = await fetch(`https://api.omegatech.app/api/movie/MovieBox-pro?action=search&keyword=${encodeURIComponent(searchKeyword)}&page=1`, {
+                signal: AbortSignal.timeout(4000)
+            });
+            if (sRes.ok) {
+                const sData = await sRes.json();
+                const list = sData?.data?.list || sData?.data?.items || sData?.data || [];
+                if (Array.isArray(list) && list.length > 0) {
+                    const first = list[0].subject || list[0];
+                    if (first?.subjectId && /^\d+$/.test(String(first.subjectId))) {
+                        const deep = await fetchSubjectDetails(first.subjectId);
+                        if (deep) return deep;
+                    }
+                    if (first?.title || first?.name) return first;
+                }
+            }
         }
     } catch (e) {}
 
@@ -419,7 +633,7 @@ async function fetchSubjectDetails(subjectId) {
 }
 
 // Default fallback poster for when none is found
-const DEFAULT_OG_POSTER = 'https://pbcdnw.aoneroom.com/image/2023/08/10/d1a46b5a-e7c6-43f1-bdf0-c8f35e985854.jpg';
+const DEFAULT_OG_POSTER = '/icons/slflix.png';
 
 // Helper for Movie / TV / Anime OG Generation
 async function handleMovieOrTvOg(req, res, subjectId, forcedTheme = null) {
@@ -438,7 +652,7 @@ async function handleMovieOrTvOg(req, res, subjectId, forcedTheme = null) {
                 if (id) {
                     staffMap.set(id, {
                         name: s.name || s.enName || '',
-                        avatar: s.avatar?.url || s.avatar || s.photo || '',
+                        avatar: s.avatar?.url || (typeof s.avatar === 'string' ? s.avatar : '') || s.photo || '',
                         role: s.role || 'Actor'
                     });
                 }
@@ -448,12 +662,12 @@ async function handleMovieOrTvOg(req, res, subjectId, forcedTheme = null) {
         const isTvSeries = movie?.subjectType === 2 || movie?.type === 'TV Series' || movie?.category === 'Series';
         const theme = forcedTheme || (isTvSeries ? 'tv' : 'movie');
 
-        const title = movie?.title || movie?.name || (theme === 'tv' ? 'Featured TV Series' : 'Featured Movie');
-        const posterUrl = movie?.cover?.url || movie?.thumbnail || DEFAULT_OG_POSTER;
-        const rating = movie?.imdbRatingValue || movie?.imdbRating || movie?.rating || '8.5';
-        const year = (movie?.releaseDate || '').split('-')[0] || '2026';
-        const genre = movie?.genre || movie?.category || (isTvSeries ? 'TV Series' : 'Movie');
-        const description = (movie?.description || movie?.introduction || movie?.summary || 'Watch online free in ultra-high definition on SLFLIX with zero ads.').trim();
+        const title = req.query.title || movie?.title || movie?.name || (theme === 'tv' ? 'Featured TV Series' : 'Featured Movie');
+        const posterUrl = req.query.poster || req.query.img || movie?.cover?.url || (typeof movie?.cover === 'string' ? movie?.cover : '') || movie?.thumbnail || movie?.poster?.url || movie?.image?.url || movie?.pic?.normal || movie?.horizontal_cover?.url || DEFAULT_OG_POSTER;
+        const rating = req.query.rating || movie?.imdbRatingValue || movie?.imdbRating || movie?.rating || '8.5';
+        const year = (movie?.releaseDate || '').split('-')[0] || req.query.year || '2026';
+        const genre = movie?.genre || movie?.category || req.query.genre || (isTvSeries ? 'TV Series' : 'Movie');
+        const description = (req.query.synopsis || req.query.desc || movie?.synopsis || movie?.description || movie?.introduction || movie?.summary || movie?.desc || movie?.content || movie?.postTitle || `Watch ${title} online free in ultra-high definition with multi-subtitles and zero ads on SLFLIX.`).trim();
         const duration = movie?.duration ? `${movie.duration}m` : (isTvSeries ? 'ALL SEASONS' : '4K HDR');
 
         const pngBuffer = await renderOgPng({
@@ -653,27 +867,15 @@ app.get(['/api/og/novel/:novelId', '/api/og/novel/:novelId.png', '/api/og/novel'
     }
 });
 
-// Home / Master OG endpoint
-app.get(['/api/og/home', '/api/og/home.png', '/api/og', '/api/og.png'], async (req, res) => {
-    try {
-        const pngBuffer = await renderOgPng({
-            theme: 'home',
-            title: 'SLFLIX PRO Cinema Hub',
-            description: 'Stream over 10,000+ blockbuster movies, binge-worthy TV series, anime, and live channels with zero ads and no registration.',
-            posterUrl: DEFAULT_OG_POSTER,
-            rating: '9.8',
-            year: '2026',
-            genre: 'Movies, Series, Live TV',
-            quality: '4K ULTRA HD'
-        }, 'home_global');
-
+// Home / Master OG endpoint - directly serve the official high-res app icon image
+app.get(['/api/og/home', '/api/og/home.png', '/api/og', '/api/og.png'], (req, res) => {
+    const iconPath = path.resolve(__dirname, 'public/icons/slflix.png');
+    if (fs.existsSync(iconPath)) {
         res.setHeader('Content-Type', 'image/png');
-        res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
-        res.send(pngBuffer);
-    } catch (err) {
-        console.error('[OG Home] Error:', err);
-        res.status(500).send('Error generating home OG image');
+        res.setHeader('Cache-Control', 'public, max-age=604800, s-maxage=604800, immutable');
+        return res.sendFile(iconPath);
     }
+    res.redirect('/icons/slflix.png');
 });
 
 // Generic / Backward-compatible endpoint: /api/og/:subjectId
@@ -986,12 +1188,12 @@ async function getDynamicHtml(req, res) {
                 const rawTitle = isTvSeries 
                     ? `${movie.title || movie.name} | Stream TV Series Online Free - SLFLIX`
                     : `${movie.title || movie.name} | Watch Online Free - SLFLIX`;
-                const movieOwnDesc = (movie.description || movie.introduction || movie.summary || '').trim();
+                const movieOwnDesc = (movie.synopsis || movie.description || movie.introduction || movie.summary || movie.desc || movie.content || movie.postTitle || '').trim();
                 const rawDescription = movieOwnDesc || `Watch ${movie.title || movie.name} online free in HD. ${movie.genre || movie.category || 'Stream now on SLFLIX'}.`;
                 const title = rawTitle.replace(/"/g, '&quot;');
                 const description = rawDescription.replace(/"/g, '&quot;').replace(/[\r\n]+/g, ' ');
                 const image = `${hostUrl}/api/og/${isTvSeries ? 'tv' : 'movie'}/${subjectId}.png`;
-                const movieCoverUrl = movie.cover?.url || movie.thumbnail || DEFAULT_OG_POSTER;
+                const movieCoverUrl = movie.cover?.url || (typeof movie.cover === 'string' ? movie.cover : '') || movie.thumbnail || movie.poster?.url || movie.image?.url || `${hostUrl}/icons/slflix.png`;
 
                 // Cache staff members for future staff page requests
                 if (movie.staffList || movie.staffs || movie.actors) {
@@ -1113,7 +1315,7 @@ async function getDynamicHtml(req, res) {
         } else if (isHome) {
             const title = 'SLFLIX | Watch Free Movies, TV Series & Live Streams Online in 4K';
             const description = 'Stream over 10,000+ blockbuster movies, binge-worthy TV series, anime, and live channels with zero ads and no registration.';
-            const image = `${hostUrl}/api/og/home.png`;
+            const image = `${hostUrl}/icons/slflix.png`;
 
             html = injectSeoTags(html, {
                 title,
